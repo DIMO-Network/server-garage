@@ -32,7 +32,7 @@ type FiberApp interface {
 }
 
 // RunFiber starts a Fiber application in a new goroutine and shuts it down when the context is cancelled.
-func RunFiber(ctx context.Context, fiberApp FiberApp, addr string, group *errgroup.Group) {
+func RunFiber(ctx context.Context, group *errgroup.Group, fiberApp FiberApp, addr string) {
 	group.Go(func() error {
 		if err := fiberApp.Listen(addr); err != nil {
 			return fmt.Errorf("failed to start server: %w", err)
@@ -55,7 +55,7 @@ type GRPCServer interface {
 }
 
 // RunGRPC starts a gRPC server in a new goroutine and shuts it down when the context is cancelled.
-func RunGRPC(ctx context.Context, grpcServer GRPCServer, addr string, group *errgroup.Group) {
+func RunGRPC(ctx context.Context, group *errgroup.Group, grpcServer GRPCServer, addr string) {
 	group.Go(func() error {
 		lis, err := net.Listen("tcp", addr)
 		if err != nil {
@@ -74,7 +74,7 @@ func RunGRPC(ctx context.Context, grpcServer GRPCServer, addr string, group *err
 }
 
 // RunHandler starts a HTTP server in a new goroutine and shuts it down when the context is cancelled.
-func RunHandler(ctx context.Context, handler http.Handler, addr string, group *errgroup.Group) {
+func RunHandler(ctx context.Context, group *errgroup.Group, handler http.Handler, addr string) {
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: handler,
