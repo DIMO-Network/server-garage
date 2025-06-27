@@ -1,4 +1,4 @@
-module github.com/KevinJoiner/server-garage
+module github.com/DIMO-Network/server-garage
 
 go 1.24
 
