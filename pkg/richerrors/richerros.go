@@ -7,6 +7,7 @@ import (
 
 // RichError is an error that contains a code, an external message, and a wrapped error.
 type RichError struct {
+	Code        int
 	ExternalMsg string
 	Err         error
 }
@@ -48,4 +49,10 @@ func Errorf(externalMsg string, format string, args ...interface{}) RichError {
 		ExternalMsg: externalMsg,
 		Err:         fmt.Errorf(format, args...),
 	}
+}
+
+func ErrorWithCodef(code int, externalMsg string, format string, args ...interface{}) RichError {
+	richErr := Errorf(externalMsg, format, args...)
+	richErr.Code = code
+	return richErr
 }
