@@ -3,11 +3,11 @@ module github.com/KevinJoiner/server-garage
 go 1.24
 
 require (
-	github.com/99designs/gqlgen v0.17.74
+	github.com/99designs/gqlgen v0.17.75
 	github.com/prometheus/client_golang v1.22.0
 	github.com/rs/zerolog v1.34.0
-	github.com/vektah/gqlparser/v2 v2.5.27
-	golang.org/x/sync v0.14.0
+	github.com/vektah/gqlparser/v2 v2.5.28
+	golang.org/x/sync v0.15.0
 )
 
 require (
