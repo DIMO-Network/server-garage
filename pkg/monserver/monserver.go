@@ -28,27 +28,24 @@ func NewMonitoringServer(logger *zerolog.Logger, enablePprof bool) *http.ServeMu
 		_, _ = w.Write([]byte("healthy"))
 	})
 
-	mux.Handle("/metrics", promhttp.Handler())
+	mux.Handle("GET /metrics", promhttp.Handler())
 
 	// Add pprof handlers if enabled
 	if enablePprof {
-		pprofMux := http.NewServeMux()
-		mux.Handle("/debug/pprof/", pprofMux)
-
 		// Index page and base profiles
-		pprofMux.HandleFunc("GET /", pprof.Index)
-		pprofMux.HandleFunc("GET /cmdline", pprof.Cmdline)
-		pprofMux.HandleFunc("GET /profile", pprof.Profile)
-		pprofMux.HandleFunc("GET /symbol", pprof.Symbol)
-		pprofMux.HandleFunc("GET /trace", pprof.Trace)
+		mux.HandleFunc("GET /debug/pprof/", pprof.Index)
+		mux.HandleFunc("GET /debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
 
 		// add specialized profiles
 		profiles := runtimepprof.Profiles()
 		for _, profile := range profiles {
-			pprofMux.Handle("GET /"+profile.Name(), pprof.Handler(profile.Name()))
+			mux.Handle("GET /debug/pprof/"+profile.Name(), pprof.Handler(profile.Name()))
 		}
 		if logger != nil {
-			logger.Info().Str("endpoint", "/debug/pprof").Msg("pprof profiling enabled on monitoring server")
+			logger.Info().Str("endpoint", "GET /debug/pprof").Msg("pprof profiling enabled on monitoring server")
 		}
 	}
 
