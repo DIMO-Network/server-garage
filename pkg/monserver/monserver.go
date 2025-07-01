@@ -22,14 +22,6 @@ func NewMonitoringServer(logger *zerolog.Logger, enablePprof bool) *http.ServeMu
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	mux.HandleFunc("HEAD /", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	})
-
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
