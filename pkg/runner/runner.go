@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -80,7 +81,7 @@ func RunHandler(ctx context.Context, group *errgroup.Group, handler http.Handler
 		Handler: handler,
 	}
 	group.Go(func() error {
-		if err := srv.ListenAndServe(); err != nil {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("failed to run server: %w", err)
 		}
 		return nil
