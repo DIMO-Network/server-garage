@@ -4,6 +4,8 @@ go 1.24
 
 require (
 	github.com/99designs/gqlgen v0.17.78
+	github.com/caarlos0/env/v11 v11.3.1
+	github.com/joho/godotenv v1.5.1
 	github.com/prometheus/client_golang v1.22.0
 	github.com/rs/zerolog v1.34.0
 	github.com/vektah/gqlparser/v2 v2.5.30
