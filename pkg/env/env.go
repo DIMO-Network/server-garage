@@ -2,6 +2,7 @@ package env
 
 import (
 	"fmt"
+	"os"
 	"slices"
 
 	"github.com/caarlos0/env/v11"
@@ -11,12 +12,15 @@ import (
 // LoadSettings is a simple wrapper around godotenv.Load and env.Parse.
 func LoadSettings[T any](filePaths ...string) (T, error) {
 	filePaths = slices.DeleteFunc(filePaths, func(file string) bool {
-		return file == ""
+		_, err := os.Stat(file)
+		return os.IsNotExist(err)
 	})
 	var settings T
-	err := godotenv.Load(filePaths...)
-	if err != nil {
-		return settings, fmt.Errorf("failed to load settings from %s: %w", filePaths, err)
+	if len(filePaths) > 0 {
+		err := godotenv.Load(filePaths...)
+		if err != nil {
+			return settings, fmt.Errorf("failed to load settings from %s: %w", filePaths, err)
+		}
 	}
 	// Then override with environment variables
 	if err := env.Parse(&settings); err != nil {
