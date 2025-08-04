@@ -17,7 +17,10 @@ func (e Error) Error() string {
 	if e.ExternalMsg != "" {
 		return e.ExternalMsg
 	}
-	return e.Err.Error()
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return ""
 }
 
 // String implements the fmt.Stringer interface.
