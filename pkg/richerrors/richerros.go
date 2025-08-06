@@ -15,7 +15,7 @@ type Error struct {
 // Error returns the ExternalMsg if it is set, otherwise it returns the error message of the wrapped error.
 func (e Error) Error() string {
 	if e.ExternalMsg != "" {
-		return e.ExternalMsg
+		return fmt.Sprintf("%s: %s", e.ExternalMsg, e.Err.Error())
 	}
 	if e.Err != nil {
 		return e.Err.Error()
