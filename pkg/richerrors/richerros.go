@@ -59,3 +59,17 @@ func ErrorWithCodef(code int, externalMsg string, format string, args ...interfa
 	richErr.Code = code
 	return richErr
 }
+
+// IsRichError checks if the error wraps a RichError.
+func IsRichError(err error) bool {
+	return errors.As(err, &Error{})
+}
+
+// AsRichError unwraps the error if it wraps a RichError.
+func AsRichError(err error) (Error, bool) {
+	var richErr Error
+	if errors.As(err, &richErr) {
+		return richErr, true
+	}
+	return Error{}, false
+}
