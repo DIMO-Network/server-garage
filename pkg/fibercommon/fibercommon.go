@@ -1,4 +1,5 @@
-package commonfiber
+// Package fibercommon provides common fiber related utilities.
+package fibercommon
 
 import (
 	"context"
