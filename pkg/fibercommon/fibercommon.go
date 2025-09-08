@@ -11,6 +11,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
+const defaultErrorMessage = "Internal error"
+
 // ContextLoggerMiddleware adds the http metadata to the logger and adds the logger to the context.
 func ContextLoggerMiddleware(c *fiber.Ctx) error {
 	ctx := c.UserContext()
@@ -44,7 +46,7 @@ func getSourceIP(c *fiber.Ctx) string {
 // It will also log the error to the set in the user context logger.
 func ErrorHandler(ctx *fiber.Ctx, err error) error {
 	code := fiber.StatusInternalServerError // Default 500 statuscode
-	message := "Internal error"
+	message := defaultErrorMessage
 
 	var fiberErr *fiber.Error
 	var richErr richerrors.Error
@@ -58,8 +60,8 @@ func ErrorHandler(ctx *fiber.Ctx, err error) error {
 		}
 	}
 
-	// log all errors except 404
-	if code != fiber.StatusNotFound {
+	// log all errors except non custom 404 messages
+	if code != fiber.StatusNotFound || message != defaultErrorMessage {
 		logger := zerolog.Ctx(ctx.UserContext())
 		logger.Err(err).Int("httpStatusCode", code).
 			Msg("caught an error from http request")
