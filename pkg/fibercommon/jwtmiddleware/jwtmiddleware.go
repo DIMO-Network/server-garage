@@ -124,7 +124,7 @@ func validateTokenIDAndAddress(ctx *fiber.Ctx, contract common.Address, tokenID 
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized! mismatch token Id provided")
 	}
 	if assetDID.ContractAddress != contract {
-		return fiber.NewError(fiber.StatusUnauthorized, fmt.Sprintf("Provided token is for the wrong contract: %s", claims.ContractAddress))
+		return fiber.NewError(fiber.StatusUnauthorized, fmt.Sprintf("Provided token is for the wrong contract: %s", assetDID.ContractAddress))
 	}
 	return nil
 }

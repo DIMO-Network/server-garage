@@ -111,7 +111,7 @@ func TestGetTokenClaim(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/test", nil)
 			resp, err := app.Test(req)
 			require.NoError(t, err)
-			defer resp.Body.Close()
+			defer resp.Body.Close() //nolint:errcheck
 
 			if tt.expectedError {
 				require.Equal(t, tt.expectedCode, resp.StatusCode)

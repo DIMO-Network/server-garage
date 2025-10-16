@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	github.com/99designs/gqlgen v0.17.78
 	github.com/DIMO-Network/cloudevent v0.1.4
-	github.com/DIMO-Network/token-exchange-api v0.3.7-0.20251014123041-dd9ca47151a2
+	github.com/DIMO-Network/token-exchange-api v0.3.7
 	github.com/caarlos0/env/v11 v11.3.1
 	github.com/ethereum/go-ethereum v1.16.4
 	github.com/gofiber/contrib/jwt v1.1.2
