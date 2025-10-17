@@ -142,11 +142,6 @@ func setupTestApp(jwkSetURLs ...string) *fiber.App {
 	return app
 }
 
-// setupTokenClaims creates token claims and sets them in the context.
-func setupTokenClaims(c *fiber.Ctx, claims *tokenclaims.Token) {
-	c.Locals(TokenClaimsKey, claims)
-}
-
 // makeToken is a helper function to create a Token with the given asset and permissions.
 func makeToken(asset string, permissions []string) *tokenclaims.Token {
 	token := &tokenclaims.Token{
