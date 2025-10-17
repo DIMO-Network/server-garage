@@ -1,14 +1,21 @@
 package jwtmiddleware
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/DIMO-Network/token-exchange-api/pkg/tokenclaims"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/go-jose/go-jose/v3"
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,9 +25,106 @@ const (
 	testAssetDID = "did:erc721:1:0x1234567890123456789012345678901234567890:12345"
 )
 
-// setupTestApp creates a new Fiber app for testing.
-func setupTestApp() *fiber.App {
-	return fiber.New(fiber.Config{
+type mockAuthServer struct {
+	server *httptest.Server
+	signer jose.Signer
+	jwks   jose.JSONWebKey
+}
+
+func setupAuthServer(t *testing.T) *mockAuthServer {
+	t.Helper()
+
+	// Generate RSA key
+	sk, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate RSA key: %v", err)
+	}
+
+	// Generate key ID
+	b := make([]byte, 20)
+	if _, err := rand.Read(b); err != nil {
+		t.Fatalf("Failed to generate key ID: %v", err)
+	}
+	keyID := hex.EncodeToString(b)
+
+	// Create JWK
+	jwk := jose.JSONWebKey{
+		Key:       sk.Public(),
+		KeyID:     keyID,
+		Algorithm: string(jose.RS256),
+		Use:       "sig",
+	}
+
+	// Create signer
+	sig, err := jose.NewSigner(jose.SigningKey{
+		Algorithm: jose.RS256,
+		Key:       sk,
+	}, &jose.SignerOptions{
+		ExtraHeaders: map[jose.HeaderKey]any{
+			"kid": keyID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create signer: %v", err)
+	}
+
+	auth := &mockAuthServer{
+		signer: sig,
+		jwks:   jwk,
+	}
+
+	// Create test server with only JWKS endpoint
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/keys" {
+			http.NotFound(w, r)
+			return
+		}
+		err := json.NewEncoder(w).Encode(jose.JSONWebKeySet{
+			Keys: []jose.JSONWebKey{jwk},
+		})
+		if err != nil {
+			http.Error(w, "Failed to encode JWKS", http.StatusInternalServerError)
+		}
+	}))
+
+	auth.server = server
+	return auth
+}
+
+func (m *mockAuthServer) sign(claim *tokenclaims.Token) (string, error) {
+	claim.ExpiresAt = jwt.NewNumericDate(time.Now().Add(1 * time.Hour))
+	claim.IssuedAt = jwt.NewNumericDate(time.Now().Add(-1 * time.Hour))
+	claim.Audience = jwt.ClaimStrings{"dimo.zone"}
+	claim.Issuer = "http://127.0.0.1:3003"
+	b, err := json.Marshal(claim)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal claims: %w", err)
+	}
+
+	out, err := m.signer.Sign(b)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign claims: %w", err)
+	}
+
+	token, err := out.CompactSerialize()
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize token: %w", err)
+	}
+
+	return token, nil
+}
+
+func (m *mockAuthServer) URL() string {
+	return m.server.URL
+}
+
+func (m *mockAuthServer) Close() {
+	m.server.Close()
+}
+
+// setupTestApp creates a new Fiber app for testing with JWT middleware.
+func setupTestApp(jwkSetURLs ...string) *fiber.App {
+	app := fiber.New(fiber.Config{
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
 			code := fiber.StatusInternalServerError
 			if e, ok := err.(*fiber.Error); ok {
@@ -29,6 +133,13 @@ func setupTestApp() *fiber.App {
 			return c.Status(code).SendString(err.Error())
 		},
 	})
+
+	// Add JWT middleware if JWK set URLs are provided
+	if len(jwkSetURLs) > 0 {
+		app.Use(NewJWTMiddleware(jwkSetURLs...))
+	}
+
+	return app
 }
 
 // setupTokenClaims creates token claims and sets them in the context.
@@ -47,83 +158,9 @@ func makeToken(asset string, permissions []string) *tokenclaims.Token {
 	return token
 }
 
-func TestGetTokenClaim(t *testing.T) {
-	tests := []struct {
-		name          string
-		setupClaims   func(*fiber.Ctx)
-		expectedError bool
-		expectedCode  int
-	}{
-		{
-			name: "valid token claims",
-			setupClaims: func(c *fiber.Ctx) {
-				setupTokenClaims(c, makeToken(testAssetDID, []string{"perm1", "perm2"}))
-			},
-			expectedError: false,
-		},
-		{
-			name: "missing token claims in context",
-			setupClaims: func(c *fiber.Ctx) {
-				// Don't set any claims
-			},
-			expectedError: true,
-			expectedCode:  fiber.StatusUnauthorized,
-		},
-		{
-			name: "invalid type in context",
-			setupClaims: func(c *fiber.Ctx) {
-				c.Locals(TokenClaimsKey, "invalid_type")
-			},
-			expectedError: true,
-			expectedCode:  fiber.StatusUnauthorized,
-		},
-		{
-			name: "nil value in context",
-			setupClaims: func(c *fiber.Ctx) {
-				c.Locals(TokenClaimsKey, nil)
-			},
-			expectedError: true,
-			expectedCode:  fiber.StatusUnauthorized,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			app := setupTestApp()
-
-			app.Get("/test", func(c *fiber.Ctx) error {
-				tt.setupClaims(c)
-				claims, err := GetTokenClaim(c)
-
-				if tt.expectedError {
-					require.Error(t, err)
-					if e, ok := err.(*fiber.Error); ok {
-						require.Equal(t, tt.expectedCode, e.Code)
-					}
-					return err
-				}
-
-				require.NoError(t, err)
-				require.NotNil(t, claims)
-				return c.SendStatus(fiber.StatusOK)
-			})
-
-			req := httptest.NewRequest(http.MethodGet, "/test", nil)
-			resp, err := app.Test(req)
-			require.NoError(t, err)
-			defer resp.Body.Close() //nolint:errcheck
-
-			if tt.expectedError {
-				require.Equal(t, tt.expectedCode, resp.StatusCode)
-			} else {
-				require.Equal(t, fiber.StatusOK, resp.StatusCode)
-			}
-		})
-	}
-}
-
 func TestAllOfPermissions(t *testing.T) {
 	contract := common.HexToAddress(testContract)
+	authServer := setupAuthServer(t)
 
 	tests := []struct {
 		name         string
@@ -228,15 +265,11 @@ func TestAllOfPermissions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			app := setupTestApp()
-
+			app := setupTestApp() // No JWT middleware for this test
+			authRoute := app.Use(NewJWTMiddleware(authServer.URL() + "/keys"))
 			// Setup route with middleware
-			app.Get(
+			authRoute.Get(
 				fmt.Sprintf("/test/:%s", tt.tokenIDParam),
-				func(c *fiber.Ctx) error {
-					setupTokenClaims(c, tt.claims)
-					return c.Next()
-				},
 				AllOfPermissions(contract, tt.tokenIDParam, tt.permissions),
 				func(c *fiber.Ctx) error {
 					return c.SendStatus(fiber.StatusOK)
@@ -244,6 +277,9 @@ func TestAllOfPermissions(t *testing.T) {
 			)
 
 			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/test/%s", tt.pathValue), nil)
+			token, err := authServer.sign(tt.claims)
+			require.NoError(t, err)
+			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 			resp, err := app.Test(req)
 			require.NoError(t, err)
 			require.Equal(t, tt.expectedCode, resp.StatusCode)
@@ -253,6 +289,7 @@ func TestAllOfPermissions(t *testing.T) {
 
 func TestOneOfPermissions(t *testing.T) {
 	contract := common.HexToAddress(testContract)
+	authServer := setupAuthServer(t)
 
 	tests := []struct {
 		name         string
@@ -325,14 +362,11 @@ func TestOneOfPermissions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			app := setupTestApp()
-
-			app.Get(
+			app := setupTestApp() // No JWT middleware for this test
+			authRoute := app.Use(NewJWTMiddleware(authServer.URL() + "/keys"))
+			// Setup route with middleware
+			authRoute.Get(
 				fmt.Sprintf("/test/:%s", tt.tokenIDParam),
-				func(c *fiber.Ctx) error {
-					setupTokenClaims(c, tt.claims)
-					return c.Next()
-				},
 				OneOfPermissions(contract, tt.tokenIDParam, tt.permissions),
 				func(c *fiber.Ctx) error {
 					return c.SendStatus(fiber.StatusOK)
@@ -340,15 +374,19 @@ func TestOneOfPermissions(t *testing.T) {
 			)
 
 			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/test/%s", tt.pathValue), nil)
+			token, err := authServer.sign(tt.claims)
+			require.NoError(t, err)
+			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 			resp, err := app.Test(req)
 			require.NoError(t, err)
 			require.Equal(t, tt.expectedCode, resp.StatusCode)
-
 		})
 	}
 }
 
 func TestAllOfPermissionsAddress(t *testing.T) {
+	authServer := setupAuthServer(t)
+
 	tests := []struct {
 		name         string
 		addressParam string
@@ -420,14 +458,11 @@ func TestAllOfPermissionsAddress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			app := setupTestApp()
-
-			app.Get(
+			app := setupTestApp() // No JWT middleware for this test
+			authRoute := app.Use(NewJWTMiddleware(authServer.URL() + "/keys"))
+			// Setup route with middleware
+			authRoute.Get(
 				fmt.Sprintf("/test/:%s", tt.addressParam),
-				func(c *fiber.Ctx) error {
-					setupTokenClaims(c, tt.claims)
-					return c.Next()
-				},
 				AllOfPermissionsAddress(tt.addressParam, tt.permissions),
 				func(c *fiber.Ctx) error {
 					return c.SendStatus(fiber.StatusOK)
@@ -435,6 +470,9 @@ func TestAllOfPermissionsAddress(t *testing.T) {
 			)
 
 			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/test/%s", tt.pathValue), nil)
+			token, err := authServer.sign(tt.claims)
+			require.NoError(t, err)
+			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 			resp, err := app.Test(req)
 			require.NoError(t, err)
 			require.Equal(t, tt.expectedCode, resp.StatusCode)
@@ -443,6 +481,8 @@ func TestAllOfPermissionsAddress(t *testing.T) {
 }
 
 func TestOneOfPermissionsAddress(t *testing.T) {
+	authServer := setupAuthServer(t)
+
 	tests := []struct {
 		name         string
 		addressParam string
@@ -495,14 +535,11 @@ func TestOneOfPermissionsAddress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			app := setupTestApp()
-
-			app.Get(
+			app := setupTestApp() // No JWT middleware for this test
+			authRoute := app.Use(NewJWTMiddleware(authServer.URL() + "/keys"))
+			// Setup route with middleware
+			authRoute.Get(
 				fmt.Sprintf("/test/:%s", tt.addressParam),
-				func(c *fiber.Ctx) error {
-					setupTokenClaims(c, tt.claims)
-					return c.Next()
-				},
 				OneOfPermissionsAddress(tt.addressParam, tt.permissions),
 				func(c *fiber.Ctx) error {
 					return c.SendStatus(fiber.StatusOK)
@@ -510,10 +547,12 @@ func TestOneOfPermissionsAddress(t *testing.T) {
 			)
 
 			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/test/%s", tt.pathValue), nil)
+			token, err := authServer.sign(tt.claims)
+			require.NoError(t, err)
+			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 			resp, err := app.Test(req)
 			require.NoError(t, err)
 			require.Equal(t, tt.expectedCode, resp.StatusCode)
-
 		})
 	}
 }

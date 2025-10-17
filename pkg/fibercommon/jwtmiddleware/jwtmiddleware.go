@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	jwtware "github.com/gofiber/contrib/jwt"
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 const (
@@ -131,11 +132,15 @@ func validateTokenIDAndAddress(ctx *fiber.Ctx, contract common.Address, tokenID 
 
 // GetTokenClaim gets the token claim from the fiber context.
 func GetTokenClaim(ctx *fiber.Ctx) (*tokenclaims.Token, error) {
-	token, ok := ctx.Locals(TokenClaimsKey).(*tokenclaims.Token)
+	token, ok := ctx.Locals("user").(*jwt.Token)
+	if !ok {
+		return nil, fiber.NewError(fiber.StatusUnauthorized, "Unauthorized! Internal server error while getting token")
+	}
+	claim, ok := token.Claims.(*tokenclaims.Token)
 	if !ok {
 		return nil, fiber.NewError(fiber.StatusUnauthorized, "Unauthorized! Internal server error while getting token claim")
 	}
-	return token, nil
+	return claim, nil
 }
 
 func getTokenID(c *fiber.Ctx, tokenIDParam string) (*big.Int, error) {
