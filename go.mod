@@ -10,7 +10,7 @@ require (
 	github.com/ethereum/go-ethereum v1.16.4
 	github.com/go-jose/go-jose/v3 v3.0.4
 	github.com/gofiber/contrib/jwt v1.1.2
-	github.com/gofiber/fiber/v2 v2.52.9
+	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/joho/godotenv v1.5.1
 	github.com/modelcontextprotocol/go-sdk v1.2.0
