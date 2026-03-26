@@ -1,0 +1,13 @@
+directive @mcpTool(name: String!, description: String!, selection: String!) on FIELD_DEFINITION
+
+type Query {
+  vehicle(
+    """The vehicle's NFT token ID"""
+    tokenId: Int!
+  ): Vehicle
+    @mcpTool(name: "vehicle_info", description: "Get vehicle info", selection: "tokenId")
+}
+
+type Vehicle {
+  tokenId: Int!
+}

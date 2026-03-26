@@ -1,0 +1,10 @@
+directive @mcpTool(name: String!, description: String!, selection: String!) on FIELD_DEFINITION
+
+type Query {
+  vehicle(tokenId: Int!): Vehicle
+    @mcpTool(name: "vehicle_info", description: "Get vehicle info", selection: "nonExistentField")
+}
+
+type Vehicle {
+  tokenId: Int!
+}
