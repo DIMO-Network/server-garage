@@ -1,0 +1,98 @@
+directive @mcpTool(name: String!, description: String!, selection: String!, readOnly: Boolean = true) on FIELD_DEFINITION
+directive @isSignal on FIELD_DEFINITION
+directive @hasAggregation on FIELD_DEFINITION
+
+type Query {
+  signalAggregations(tokenId: Int!): SignalAggregations
+    @mcpTool(name: "signal_aggs", description: "Get signal aggregations", selection: "timestamp speed powertrainCombustionEngineSpeed exteriorAirTemperature lowVoltageBatteryCurrentVoltage obdRunTime chassisAxleRow1WheelLeftTirePressure vin currentLocationLatitude")
+}
+
+type SignalAggregations {
+  timestamp: String!
+
+  """
+  Vehicle speed.
+  Unit: 'km/h'
+  Required Privileges: [VEHICLE_NON_LOCATION_DATA]
+  """
+  speed(agg: FloatAggregation!, filter: SignalFloatFilter): Float @isSignal @hasAggregation
+
+  """
+  Engine speed.
+  Unit: 'rpm'
+  Required Privileges: [VEHICLE_NON_LOCATION_DATA]
+  """
+  powertrainCombustionEngineSpeed(agg: FloatAggregation!, filter: SignalFloatFilter): Float @isSignal @hasAggregation
+
+  """
+  Temperature outside the vehicle.
+  Unit: 'celsius'
+  Required Privileges: [VEHICLE_NON_LOCATION_DATA]
+  """
+  exteriorAirTemperature(agg: FloatAggregation!, filter: SignalFloatFilter): Float @isSignal @hasAggregation
+
+  """
+  Current Voltage of the battery.
+  Unit: 'V'
+  Required Privileges: [VEHICLE_NON_LOCATION_DATA]
+  """
+  lowVoltageBatteryCurrentVoltage(agg: FloatAggregation!, filter: SignalFloatFilter): Float @isSignal @hasAggregation
+
+  """
+  PID 1F - Engine run time.
+  Unit: 's'
+  Required Privileges: [VEHICLE_NON_LOCATION_DATA]
+  """
+  obdRunTime(agg: FloatAggregation!, filter: SignalFloatFilter): Float @isSignal @hasAggregation
+
+  """
+  Tire pressure for left wheel on first axle.
+  Unit: 'kPa'
+  Required Privileges: [VEHICLE_NON_LOCATION_DATA]
+  """
+  chassisAxleRow1WheelLeftTirePressure(agg: FloatAggregation!, filter: SignalFloatFilter): Float @isSignal @hasAggregation
+
+  """
+  Vehicle Identification Number.
+  Required Privileges: [VEHICLE_NON_LOCATION_DATA]
+  """
+  vin(agg: StringAggregation!, filter: SignalStringFilter): String @isSignal @hasAggregation
+
+  """
+  Current latitude.
+  Unit: 'degrees'
+  Required Privileges: [VEHICLE_ALL_TIME_LOCATION]
+  """
+  currentLocationLatitude(agg: FloatAggregation!, filter: SignalFloatFilter): Float @isSignal @hasAggregation
+
+  """
+  Approximate current latitude.
+  Unit: 'degrees'
+  Required Privileges: [VEHICLE_APPROXIMATE_LOCATION]
+  """
+  currentLocationApproximateLatitude(agg: FloatAggregation!, filter: SignalFloatFilter): Float @isSignal @hasAggregation
+}
+
+enum FloatAggregation {
+  FIRST
+  LAST
+  MIN
+  MAX
+  AVG
+}
+
+enum StringAggregation {
+  FIRST
+  LAST
+  UNIQUE
+}
+
+input SignalFloatFilter {
+  from: String!
+  to: String!
+}
+
+input SignalStringFilter {
+  from: String!
+  to: String!
+}

@@ -28,5 +28,6 @@ settings.yaml
 __debug_bin*
 *.code-workspace
 .history/
+/mcpgen
 
-
+CLAUDE.md

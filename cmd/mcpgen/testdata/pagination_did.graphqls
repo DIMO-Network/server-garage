@@ -1,0 +1,59 @@
+directive @mcpTool(name: String!, description: String!, selection: String!, readOnly: Boolean = true) on FIELD_DEFINITION
+
+type Query {
+  """
+  List minted vehicles.
+  For now, these are always ordered by token ID in descending order.
+  """
+  vehicles(
+    """
+    The number of vehicles to retrieve.
+    Mutually exclusive with `last`.
+    """
+    first: Int
+    "A cursor for pagination. Retrieve vehicles after this cursor."
+    after: String
+    """
+    The number of vehicles to retrieve from the end of the list.
+    Mutually exclusive with `first`.
+    """
+    last: Int
+    "A cursor for pagination. Retrieve vehicles before this cursor."
+    before: String
+    "Filter the vehicles based on specific criteria."
+    filterBy: VehiclesFilter
+  ): VehicleConnection!
+    @mcpTool(name: "vehicles", description: "List vehicles", selection: "nodes { tokenId owner }")
+}
+
+type Vehicle {
+  tokenId: Int!
+  "The DID for this vehicle's token ID in the format did:erc721:<chainID>:<contractAddress>:<tokenId>"
+  tokenDID: String!
+  "The Ethereum address of the owner of this vehicle."
+  owner: Address!
+}
+
+"0x-prefixed checksummed hex address"
+scalar Address
+
+input VehiclesFilter {
+  owner: Address
+}
+
+type VehicleEdge {
+  node: Vehicle!
+  cursor: String!
+}
+
+type VehicleConnection {
+  totalCount: Int!
+  edges: [VehicleEdge!]!
+  nodes: [Vehicle!]!
+  pageInfo: PageInfo!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  endCursor: String
+}

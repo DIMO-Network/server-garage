@@ -1,0 +1,17 @@
+directive @mcpTool(name: String!, description: String!, selection: String!, readOnly: Boolean = true) on FIELD_DEFINITION
+
+type Query {
+  attestation(id: String!): Attestation
+    @mcpTool(name: "attestation", description: "Get attestation", selection: "id type dataVersion")
+}
+
+type Attestation {
+  "id"
+  id: String!
+  "type"
+  type: String!
+  "The dataVersion of the Attestation."
+  dataVersion: String!
+  "A meaningful description that should be kept."
+  payload: String!
+}
