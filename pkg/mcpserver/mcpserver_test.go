@@ -497,7 +497,7 @@ func TestQuerySizeLimitRejected(t *testing.T) {
 
 	contentJSON, _ := json.Marshal(result.Content[0])
 	var tc struct{ Text string }
-	json.Unmarshal(contentJSON, &tc)
+	require.NoError(t, json.Unmarshal(contentJSON, &tc))
 	assert.Contains(t, tc.Text, "exceeds maximum size")
 }
 
@@ -595,7 +595,7 @@ func TestTokenVerifierRejects(t *testing.T) {
 
 	resp, err := http.Post(ts.URL, "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
@@ -614,7 +614,7 @@ func TestTokenVerifierMissingHeader(t *testing.T) {
 
 	resp, err := http.Post(ts.URL, "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 

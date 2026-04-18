@@ -374,7 +374,7 @@ func writeDescription(sb *strings.Builder, desc, indent string) {
 	paragraphs := splitDescriptionParagraphs(desc)
 	sb.WriteString(indent)
 	sb.WriteString("\"\"\"\n")
-	for i, para := range paragraphs {
+	for _, para := range paragraphs {
 		if para == "" {
 			// Blank line between paragraphs.
 			sb.WriteString("\n")
@@ -384,10 +384,6 @@ func writeDescription(sb *strings.Builder, desc, indent string) {
 			sb.WriteString(indent)
 			sb.WriteString(line)
 			sb.WriteString("\n")
-		}
-		// Add blank line between paragraphs (but not after the last one).
-		if i < len(paragraphs)-1 && paragraphs[i+1] != "" {
-			// Only if next paragraph is not already a blank separator.
 		}
 	}
 	sb.WriteString(indent)
