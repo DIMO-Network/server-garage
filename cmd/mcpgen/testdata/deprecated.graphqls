@@ -1,0 +1,20 @@
+directive @mcpTool(name: String!, description: String!, selection: String!, readOnly: Boolean = true) on FIELD_DEFINITION
+
+type Query {
+  vehicle(tokenId: Int!): Vehicle
+    @mcpTool(name: "vehicle_info", description: "Get vehicle info", selection: "tokenId owner imageURI")
+}
+
+type Vehicle {
+  tokenId: Int!
+  owner: String!
+  "Use imageURI instead"
+  image: String @deprecated(reason: "Use imageURI instead")
+  imageURI: String!
+}
+
+enum Status {
+  ACTIVE
+  INACTIVE
+  PENDING @deprecated(reason: "Use ACTIVE instead")
+}

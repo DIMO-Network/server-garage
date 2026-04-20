@@ -1,0 +1,21 @@
+directive @mcpTool(name: String!, description: String!, selection: String!, readOnly: Boolean = true) on FIELD_DEFINITION
+
+"0x-prefixed checksummed hex address"
+scalar Address
+
+"RFC-3339 date-time string"
+scalar Time
+
+"lowercase hex with 0x prefix"
+scalar Bytes
+
+type Query {
+  account(addr: Address!): Account
+    @mcpTool(name: "account", description: "Get account", selection: "addr balance")
+}
+
+type Account {
+  addr: Address!
+  balance: Int!
+  createdAt: Time!
+}

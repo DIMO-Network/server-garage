@@ -1,0 +1,27 @@
+directive @mcpTool(name: String!, description: String!, selection: String!, readOnly: Boolean = true) on FIELD_DEFINITION
+
+type Query {
+  """
+  Returns vehicle usage segments detected using the specified mechanism.
+  Maximum date range: 31 days. Detection mechanisms:
+  - ignitionDetection: Uses 'isIgnitionOn' signal with configurable debouncing
+  - frequencyAnalysis: Analyzes signal update frequency to detect activity periods
+  - changePointDetection: CUSUM-based regime change detection
+  - refuel: Refueling segments (fuel level increased)
+  Segment IDs are stable and consistent across queries as long as the segment
+  start is captured in the underlying data source. A default set of signal
+  requests is always applied. When signalRequests is provided, those requests
+  are added on top of the default set; duplicates (same name and agg) are omitted.
+  """
+  segments(tokenId: Int!, from: String!, to: String!): SegmentResult
+    @mcpTool(name: "segments", description: "Get signal segments", selection: "buckets { timestamp }")
+}
+
+type SegmentResult {
+  buckets: [Bucket!]!
+}
+
+type Bucket {
+  timestamp: String!
+  value: Float
+}

@@ -1,0 +1,18 @@
+directive @mcpTool(name: String!, description: String!, selection: String!, readOnly: Boolean = true) on FIELD_DEFINITION
+directive @mcpExample(description: String!, query: String!) repeatable on FIELD_DEFINITION
+
+type Query {
+  vehicle(tokenId: Int!): Vehicle
+    @mcpTool(name: "vehicle_info", description: "Get vehicle info", selection: "tokenId owner")
+    @mcpExample(description: "Get vehicle 123", query: "{ vehicle(tokenId: 123) { tokenId owner } }")
+    @mcpExample(description: "Get just the owner", query: "{ vehicle(tokenId: 456) { owner } }")
+
+  vehicles(make: String!): [Vehicle!]!
+    @mcpExample(description: "Find Teslas", query: "{ vehicles(make: \"Tesla\") { tokenId make } }")
+}
+
+type Vehicle {
+  tokenId: Int!
+  owner: String!
+  make: String!
+}

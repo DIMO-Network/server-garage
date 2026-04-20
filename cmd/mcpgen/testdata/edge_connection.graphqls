@@ -1,0 +1,47 @@
+directive @mcpTool(name: String!, description: String!, selection: String!, readOnly: Boolean = true) on FIELD_DEFINITION
+
+type Query {
+  vehicles(first: Int, after: String): VehicleConnection!
+    @mcpTool(name: "vehicles", description: "List vehicles", selection: "nodes { tokenId owner }")
+}
+
+type Vehicle {
+  tokenId: Int!
+  owner: String!
+}
+
+type VehicleEdge {
+  node: Vehicle!
+  cursor: String!
+}
+
+type DCNEdge {
+  node: DCN!
+  cursor: String!
+}
+
+type VehicleConnection {
+  totalCount: Int!
+  edges: [VehicleEdge!]!
+  nodes: [Vehicle!]!
+  pageInfo: PageInfo!
+}
+
+type DCNConnection {
+  totalCount: Int!
+  edges: [DCNEdge!]!
+  nodes: [DCN!]!
+  pageInfo: PageInfo!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+type DCN {
+  name: String!
+  owner: String!
+}

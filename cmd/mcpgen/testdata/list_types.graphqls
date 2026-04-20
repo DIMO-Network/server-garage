@@ -1,0 +1,11 @@
+directive @mcpTool(name: String!, description: String!, selection: String!, readOnly: Boolean = true) on FIELD_DEFINITION
+
+type Query {
+  vehicles(ids: [Int!]!): [Vehicle!]!
+    @mcpTool(name: "list_vehicles", description: "List vehicles by IDs", selection: "tokenId owner")
+}
+
+type Vehicle {
+  tokenId: Int!
+  owner: String!
+}

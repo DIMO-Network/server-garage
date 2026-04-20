@@ -1,0 +1,15 @@
+directive @mcpTool(name: String!, description: String!, selection: String!, readOnly: Boolean = true) on FIELD_DEFINITION
+directive @mcpHide on FIELD_DEFINITION
+
+type Query {
+  vehicle(tokenId: Int!): Vehicle
+    @mcpTool(name: "vehicle_info", description: "Get vehicle info", selection: "tokenId owner")
+}
+
+type Vehicle {
+  tokenId: Int!
+  owner: String!
+  "Internal debug field"
+  internalScore: Float @mcpHide
+  name: String!
+}

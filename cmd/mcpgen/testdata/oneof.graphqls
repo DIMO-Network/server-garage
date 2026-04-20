@@ -1,0 +1,18 @@
+directive @mcpTool(name: String!, description: String!, selection: String!, readOnly: Boolean = true) on FIELD_DEFINITION
+directive @oneOf on INPUT_OBJECT
+
+type Query {
+  aftermarketDevice(by: AftermarketDeviceBy!): AftermarketDevice
+    @mcpTool(name: "aftermarket_device", description: "Get aftermarket device", selection: "tokenId serial")
+}
+
+input AftermarketDeviceBy @oneOf {
+  tokenId: Int
+  serial: String
+  address: String
+}
+
+type AftermarketDevice {
+  tokenId: Int!
+  serial: String!
+}

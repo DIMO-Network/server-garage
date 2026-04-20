@@ -1,0 +1,21 @@
+directive @mcpTool(name: String!, description: String!, selection: String!, readOnly: Boolean = true) on FIELD_DEFINITION
+
+type Query {
+  signals(config: SegmentConfig): SignalData
+    @mcpTool(name: "signals", description: "Get signals", selection: "value")
+}
+
+input SegmentConfig {
+  maxGapSeconds: Int = 300
+  minDurationSeconds: Int = 60
+  format: OutputFormat = JSON
+}
+
+enum OutputFormat {
+  JSON
+  CSV
+}
+
+type SignalData {
+  value: Float
+}

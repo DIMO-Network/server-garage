@@ -1,0 +1,25 @@
+directive @mcpTool(name: String!, description: String!, selection: String!, readOnly: Boolean = true) on FIELD_DEFINITION
+
+scalar DateTime
+
+enum Status {
+  ACTIVE
+  INACTIVE
+}
+
+type Query {
+  search(
+    name: String!
+    limit: Int!
+    score: Float!
+    active: Boolean!
+    since: DateTime!
+    status: Status!
+    ids: [Int!]!
+  ): [Result!]!
+    @mcpTool(name: "search", description: "Search with all arg types", selection: "id")
+}
+
+type Result {
+  id: ID!
+}
