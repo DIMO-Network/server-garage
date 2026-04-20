@@ -761,3 +761,40 @@ func TestWithLoggerOption(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, buf.String(), "tool call succeeded")
 }
+
+func TestCoerceArgTypes(t *testing.T) {
+	defs := map[string]ArgDefinition{
+		"tokenId":  {Name: "tokenId", Type: "integer"},
+		"name":     {Name: "name", Type: "string"},
+		"ids":      {Name: "ids", Type: "array", ItemsType: "integer"},
+		"tags":     {Name: "tags", Type: "array", ItemsType: "string"},
+		"nullable": {Name: "nullable", Type: "integer"},
+	}
+
+	args := map[string]any{
+		"tokenId":  float64(3),
+		"name":     "foo",
+		"ids":      []any{float64(1), float64(2), float64(3)},
+		"tags":     []any{"a", "b"},
+		"nullable": nil,
+		"unknown":  float64(99),
+	}
+
+	coerceArgTypes(args, defs)
+
+	assert.Equal(t, int64(3), args["tokenId"])
+	assert.Equal(t, "foo", args["name"])
+	assert.Equal(t, []any{int64(1), int64(2), int64(3)}, args["ids"])
+	assert.Equal(t, []any{"a", "b"}, args["tags"])
+	assert.Nil(t, args["nullable"])
+	assert.Equal(t, float64(99), args["unknown"])
+}
+
+func TestCoerceArgTypesPreservesExistingInts(t *testing.T) {
+	defs := map[string]ArgDefinition{
+		"tokenId": {Name: "tokenId", Type: "integer"},
+	}
+	args := map[string]any{"tokenId": int64(7)}
+	coerceArgTypes(args, defs)
+	assert.Equal(t, int64(7), args["tokenId"])
+}

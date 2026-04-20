@@ -149,6 +149,10 @@ func buildInputSchema(args []ArgDefinition) map[string]any {
 func registerShortcutTools(server *mcp.Server, exec GraphQLExecutor, tools []ToolDefinition, logger *slog.Logger) {
 	for _, tool := range tools {
 		inputSchema := buildInputSchema(tool.Args)
+		argDefs := make(map[string]ArgDefinition, len(tool.Args))
+		for _, a := range tool.Args {
+			argDefs[a.Name] = a
+		}
 
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        tool.Name,
@@ -156,7 +160,40 @@ func registerShortcutTools(server *mcp.Server, exec GraphQLExecutor, tools []Too
 			InputSchema: inputSchema,
 			Annotations: tool.Annotations,
 		}, func(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+			coerceArgTypes(args, argDefs)
 			return executeTool(ctx, tool.Name, exec, tool.Query, args, logger)
 		})
+	}
+}
+
+// coerceArgTypes normalizes JSON-decoded argument values to the types
+// gqlgen's scalar unmarshallers expect. JSON numbers arrive as float64 via
+// map[string]any, which gqlgen's Int unmarshaller rejects ("float64 is not
+// an int"); integer-typed args are converted to int64.
+func coerceArgTypes(args map[string]any, argDefs map[string]ArgDefinition) {
+	for name, v := range args {
+		def, ok := argDefs[name]
+		if !ok {
+			continue
+		}
+		switch def.Type {
+		case "integer":
+			if f, isFloat := v.(float64); isFloat {
+				args[name] = int64(f)
+			}
+		case "array":
+			if def.ItemsType != "integer" {
+				continue
+			}
+			list, isList := v.([]any)
+			if !isList {
+				continue
+			}
+			for i, item := range list {
+				if f, isFloat := item.(float64); isFloat {
+					list[i] = int64(f)
+				}
+			}
+		}
 	}
 }
