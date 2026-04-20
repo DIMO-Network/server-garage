@@ -72,40 +72,10 @@ func TestExecutorError(t *testing.T) {
 	assert.Contains(t, err.Error(), "execution failed")
 }
 
-func TestLoadSchema(t *testing.T) {
-	exec := &mockExecutor{
-		fn: func(ctx context.Context, query string, variables map[string]any) ([]byte, error) {
-			if strings.Contains(query, "__schema") {
-				return []byte(`{"data":{"__schema":{"types":[{"name":"Query"}]}}}`), nil
-			}
-			return nil, fmt.Errorf("unexpected query")
-		},
-	}
-
-	schema, err := loadSchema(context.Background(), exec)
-	require.NoError(t, err)
-	assert.Contains(t, schema, "__schema")
-}
-
-func TestLoadSchemaError(t *testing.T) {
-	exec := &mockExecutor{
-		fn: func(ctx context.Context, query string, variables map[string]any) ([]byte, error) {
-			return nil, fmt.Errorf("connection refused")
-		},
-	}
-
-	_, err := loadSchema(context.Background(), exec)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "introspection query")
-}
-
-// mockGQLExecutor returns a GraphQLExecutor that handles introspection and echoes regular queries.
+// mockGQLExecutor returns a GraphQLExecutor that echoes regular queries back as JSON.
 func mockGQLExecutor() GraphQLExecutor {
 	return &mockExecutor{
 		fn: func(ctx context.Context, query string, variables map[string]any) ([]byte, error) {
-			if strings.Contains(query, "__schema") {
-				return []byte(`{"data":{"__schema":{"queryType":{"name":"Query"},"types":[{"name":"Query"},{"name":"Vehicle"}]}}}`), nil
-			}
 			resp := map[string]any{
 				"data": map[string]any{
 					"echoQuery":     query,
@@ -116,6 +86,9 @@ func mockGQLExecutor() GraphQLExecutor {
 		},
 	}
 }
+
+// testCondensedSchema is a minimal condensed SDL used by New(...) calls in tests.
+const testCondensedSchema = "type Query {\n  _empty: String\n}\n"
 
 func TestShortcutTool(t *testing.T) {
 	toolDef := ToolDefinition{
@@ -190,7 +163,7 @@ func TestMCPHandlerEndToEnd(t *testing.T) {
 		Query: `query GetVehicle($tokenId: Int!) { vehicle(tokenId: $tokenId) { id } }`,
 	}
 
-	mcpHandler, err := New(context.Background(), mockGQLExecutor(), "Test Server", "0.1.0", "test", WithTools([]ToolDefinition{shortcutTool}))
+	mcpHandler, err := New(mockGQLExecutor(), "Test Server", "0.1.0", "test", WithCondensedSchema(testCondensedSchema), WithTools([]ToolDefinition{shortcutTool}))
 	require.NoError(t, err)
 
 	ts := httptest.NewServer(mcpHandler)
@@ -241,7 +214,7 @@ func TestMCPHandlerEndToEnd(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(contentJSON, &textContent))
 	assert.Equal(t, "text", textContent.Type)
-	assert.Contains(t, textContent.Text, "__schema")
+	assert.Contains(t, textContent.Text, "type Query")
 
 	queryResult, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "test_query",
@@ -255,7 +228,7 @@ func TestMCPHandlerEndToEnd(t *testing.T) {
 }
 
 func TestToolPrefixing(t *testing.T) {
-	mcpHandler, err := New(context.Background(), mockGQLExecutor(), "Prefixed Server", "0.1.0", "myprefix")
+	mcpHandler, err := New(mockGQLExecutor(), "Prefixed Server", "0.1.0", "myprefix", WithCondensedSchema(testCondensedSchema))
 	require.NoError(t, err)
 
 	ts := httptest.NewServer(mcpHandler)
@@ -294,19 +267,19 @@ func TestToolPrefixing(t *testing.T) {
 }
 
 func TestEmptyPrefixRejected(t *testing.T) {
-	_, err := New(context.Background(), mockGQLExecutor(), "Test Server", "0.1.0", "")
+	_, err := New(mockGQLExecutor(), "Test Server", "0.1.0", "", WithCondensedSchema(testCondensedSchema))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "toolPrefix must be non-empty")
 }
 
 func TestEmptyServerNameRejected(t *testing.T) {
-	_, err := New(context.Background(), mockGQLExecutor(), "", "0.1.0", "test")
+	_, err := New(mockGQLExecutor(), "", "0.1.0", "test", WithCondensedSchema(testCondensedSchema))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "serverName must be non-empty")
 }
 
 func TestNilExecutorRejected(t *testing.T) {
-	_, err := New(context.Background(), nil, "Test Server", "0.1.0", "test")
+	_, err := New(nil, "Test Server", "0.1.0", "test", WithCondensedSchema(testCondensedSchema))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "executor must not be nil")
 }
@@ -314,9 +287,6 @@ func TestNilExecutorRejected(t *testing.T) {
 func TestQueryToolErrorReturnsIsError(t *testing.T) {
 	exec := &mockExecutor{
 		fn: func(ctx context.Context, query string, variables map[string]any) ([]byte, error) {
-			if strings.Contains(query, "__schema") {
-				return []byte(`{"data":{"__schema":{"queryType":{"name":"Query"}}}}`), nil
-			}
 			return nil, fmt.Errorf("field not found: badField")
 		},
 	}
@@ -370,7 +340,7 @@ func ptr[T any](v T) *T { return &v }
 
 func TestBuiltinToolAnnotations(t *testing.T) {
 	exec := mockGQLExecutor()
-	mcpHandler, err := New(context.Background(), exec, "Test Server", "0.1.0", "test")
+	mcpHandler, err := New(exec, "Test Server", "0.1.0", "test", WithCondensedSchema(testCondensedSchema))
 	require.NoError(t, err)
 
 	ts := httptest.NewServer(mcpHandler)
@@ -424,7 +394,7 @@ func TestShortcutToolAnnotations(t *testing.T) {
 		},
 	}
 
-	mcpHandler, err := New(context.Background(), mockGQLExecutor(), "Test", "0.1.0", "test", WithTools([]ToolDefinition{tool}))
+	mcpHandler, err := New(mockGQLExecutor(), "Test", "0.1.0", "test", WithCondensedSchema(testCondensedSchema), WithTools([]ToolDefinition{tool}))
 	require.NoError(t, err)
 
 	ts := httptest.NewServer(mcpHandler)
@@ -552,7 +522,7 @@ func TestTokenVerifierAccepts(t *testing.T) {
 		return ctx, fmt.Errorf("invalid token")
 	}
 
-	mcpHandler, err := New(context.Background(), mockGQLExecutor(), "Test", "0.1.0", "test",
+	mcpHandler, err := New(mockGQLExecutor(), "Test", "0.1.0", "test", WithCondensedSchema(testCondensedSchema),
 		WithTokenVerifier(verifier),
 	)
 	require.NoError(t, err)
@@ -585,7 +555,7 @@ func TestTokenVerifierRejects(t *testing.T) {
 		return ctx, fmt.Errorf("invalid")
 	}
 
-	mcpHandler, err := New(context.Background(), mockGQLExecutor(), "Test", "0.1.0", "test",
+	mcpHandler, err := New(mockGQLExecutor(), "Test", "0.1.0", "test", WithCondensedSchema(testCondensedSchema),
 		WithTokenVerifier(verifier),
 	)
 	require.NoError(t, err)
@@ -604,7 +574,7 @@ func TestTokenVerifierMissingHeader(t *testing.T) {
 		return ctx, nil
 	}
 
-	mcpHandler, err := New(context.Background(), mockGQLExecutor(), "Test", "0.1.0", "test",
+	mcpHandler, err := New(mockGQLExecutor(), "Test", "0.1.0", "test", WithCondensedSchema(testCondensedSchema),
 		WithTokenVerifier(verifier),
 	)
 	require.NoError(t, err)
@@ -727,9 +697,6 @@ func TestTokenVerifierContextPropagation(t *testing.T) {
 
 	exec := &mockExecutor{
 		fn: func(ctx context.Context, query string, variables map[string]any) ([]byte, error) {
-			if strings.Contains(query, "__schema") {
-				return []byte(`{"data":{"__schema":{"queryType":{"name":"Query"}}}}`), nil
-			}
 			val, ok := ctx.Value(authCtxKey{}).(string)
 			if !ok || val != "user-from-token" {
 				return nil, fmt.Errorf("expected context value 'user-from-token', got %v", ctx.Value(authCtxKey{}))
@@ -738,7 +705,7 @@ func TestTokenVerifierContextPropagation(t *testing.T) {
 		},
 	}
 
-	mcpHandler, err := New(context.Background(), exec, "Test", "0.1.0", "test",
+	mcpHandler, err := New(exec, "Test", "0.1.0", "test", WithCondensedSchema(testCondensedSchema),
 		WithTokenVerifier(verifier),
 	)
 	require.NoError(t, err)
@@ -772,7 +739,7 @@ func TestWithLoggerOption(t *testing.T) {
 	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
 	logger := slog.New(handler)
 
-	mcpHandler, err := New(context.Background(), mockGQLExecutor(), "Test", "0.1.0", "test",
+	mcpHandler, err := New(mockGQLExecutor(), "Test", "0.1.0", "test", WithCondensedSchema(testCondensedSchema),
 		WithLogger(logger),
 	)
 	require.NoError(t, err)

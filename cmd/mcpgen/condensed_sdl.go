@@ -33,7 +33,7 @@ func writeOperationType(sb *strings.Builder, def *ast.Definition) {
 
 		sb.WriteString("  ")
 		sb.WriteString(field.Name)
-		writeFieldArguments(sb, field.Arguments)
+		writeFieldArguments(sb, field.Arguments, field.Name)
 		sb.WriteString(": ")
 		sb.WriteString(field.Type.String())
 		sb.WriteString("\n")
@@ -93,7 +93,7 @@ func writeTypeDefinition(sb *strings.Builder, def *ast.Definition, analysis *sch
 				}
 				sb.WriteString("  ")
 				sb.WriteString(field.Name)
-				writeFieldArguments(sb, field.Arguments)
+				writeFieldArguments(sb, field.Arguments, field.Name)
 				sb.WriteString(": ")
 				sb.WriteString(field.Type.String())
 				writeFieldDefaultValue(sb, field)
@@ -159,10 +159,8 @@ func writeTypeDefinition(sb *strings.Builder, def *ast.Definition, analysis *sch
 	case ast.Scalar:
 		sb.WriteString("scalar ")
 		sb.WriteString(def.Name)
-		if def.Description != "" {
+		if desc := filterScalarDescription(def.Description, def.Name); desc != "" {
 			sb.WriteString("  # ")
-			// Join multi-line descriptions into a single inline comment.
-			desc := strings.Join(strings.Fields(def.Description), " ")
 			sb.WriteString(desc)
 		}
 		sb.WriteString("\n")
@@ -282,8 +280,10 @@ func writeInlineArgs(sb *strings.Builder, args ast.ArgumentDefinitionList) {
 // writeFieldArguments writes field arguments in SDL format.
 // Uses inline format when no arguments have non-trivial descriptions, multi-line otherwise.
 // Pagination args and self-evident arg descriptions are stripped.
-// Preserves default values when present.
-func writeFieldArguments(sb *strings.Builder, args ast.ArgumentDefinitionList) {
+// Preserves default values when present. parentField supplies extra context
+// (e.g. the enclosing field name "vehicle" for vehicle(tokenId:)) so arg
+// docstrings that restate it can be recognized as self-evident.
+func writeFieldArguments(sb *strings.Builder, args ast.ArgumentDefinitionList, parentField string) {
 	if len(args) == 0 {
 		return
 	}
@@ -291,7 +291,7 @@ func writeFieldArguments(sb *strings.Builder, args ast.ArgumentDefinitionList) {
 	// Check if any arg has a meaningful description after filtering.
 	hasDescriptions := false
 	for _, arg := range args {
-		if filterArgDescription(arg.Description, arg.Name) != "" {
+		if filterArgDescription(arg.Description, arg.Name, parentField) != "" {
 			hasDescriptions = true
 			break
 		}
@@ -300,7 +300,7 @@ func writeFieldArguments(sb *strings.Builder, args ast.ArgumentDefinitionList) {
 	if hasDescriptions {
 		sb.WriteString("(\n")
 		for _, arg := range args {
-			desc := filterArgDescription(arg.Description, arg.Name)
+			desc := filterArgDescription(arg.Description, arg.Name, parentField)
 			if desc != "" {
 				writeDescription(sb, desc, "    ")
 			}

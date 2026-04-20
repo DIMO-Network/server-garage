@@ -3,7 +3,6 @@ package mcpserver
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -92,7 +91,8 @@ func WithLogger(logger *slog.Logger) Option {
 
 // New creates an http.Handler that serves an MCP Streamable HTTP server.
 // It wraps a GraphQL executor and exposes registered tools as MCP tools.
-func New(ctx context.Context, exec GraphQLExecutor, serverName string, version string, toolPrefix string, opts ...Option) (http.Handler, error) {
+// A condensed SDL must be supplied via WithCondensedSchema.
+func New(exec GraphQLExecutor, serverName string, version string, toolPrefix string, opts ...Option) (http.Handler, error) {
 	if exec == nil {
 		return nil, errors.New("mcpserver: executor must not be nil")
 	}
@@ -111,6 +111,10 @@ func New(ctx context.Context, exec GraphQLExecutor, serverName string, version s
 		opt(cfg)
 	}
 
+	if cfg.condensedSchema == "" {
+		return nil, errors.New("mcpserver: WithCondensedSchema is required")
+	}
+
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    serverName,
 		Version: version,
@@ -118,17 +122,7 @@ func New(ctx context.Context, exec GraphQLExecutor, serverName string, version s
 		Logger: cfg.logger,
 	})
 
-	// Load the schema eagerly so initialization fails fast if the executor is broken.
-	schema, err := loadSchema(ctx, exec)
-	if err != nil {
-		return nil, fmt.Errorf("mcpserver: schema introspection failed: %w", err)
-	}
-
-	schemaContent := schema
-	if cfg.condensedSchema != "" {
-		schemaContent = cfg.condensedSchema
-	}
-	registerBuiltinTools(server, exec, schemaContent, toolPrefix, cfg.maxQuerySize, cfg.logger)
+	registerBuiltinTools(server, exec, cfg.condensedSchema, toolPrefix, cfg.maxQuerySize, cfg.logger)
 	registerShortcutTools(server, exec, cfg.tools, cfg.logger)
 
 	handler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {

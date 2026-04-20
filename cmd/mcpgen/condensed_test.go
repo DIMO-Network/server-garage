@@ -181,22 +181,25 @@ func TestCondensedSDLSignalCollapsing(t *testing.T) {
 	// Should have signal header with total count (9 signals now with approximate field).
 	assert.Contains(t, sdl, "SIGNAL FIELDS (9 total)")
 
-	// Should have per-type calling conventions.
+	// Should have per-type calling conventions (compact format: one line per type
+	// when it has exactly one argument-signature group).
 	assert.Contains(t, sdl, "All signals below exist on every signal type")
 	assert.Contains(t, sdl, "SignalAggregations:")
 	assert.Contains(t, sdl, "fieldName(agg: FloatAggregation!, filter: SignalFloatFilter): Float")
 
-	// Should have markdown table header with Type column.
-	assert.Contains(t, sdl, "| Signal | Type | Unit | Description |")
+	// Type column is dropped; exception list names non-default types.
+	assert.Contains(t, sdl, "Float is the default type.")
+	assert.Contains(t, sdl, "String: vin")
+	assert.Contains(t, sdl, "| Signal | Unit | Description |")
+	assert.NotContains(t, sdl, "| Signal | Type | Unit | Description |")
 
-	// Individual signal fields should appear as table rows with base type.
-	// Self-evident descriptions (speed, engine speed) are dropped.
-	assert.Contains(t, sdl, "| speed | Float | km/h |")
-	assert.Contains(t, sdl, "| powertrainCombustionEngineSpeed | Float | rpm |")
+	// Individual signal fields appear as table rows; self-evident descriptions dropped.
+	assert.Contains(t, sdl, "| speed | km/h |")
+	assert.Contains(t, sdl, "| powertrainCombustionEngineSpeed | rpm |")
 	// Non-obvious descriptions (PID codes) are kept.
-	assert.Contains(t, sdl, "| obdRunTime | Float | s | PID 1F - Engine run time |")
-	// String type shown.
-	assert.Contains(t, sdl, "| vin | String |")
+	assert.Contains(t, sdl, "| obdRunTime | s | PID 1F - Engine run time |")
+	// String signals appear in the table without an explicit type column.
+	assert.Contains(t, sdl, "| vin |  | Vehicle Identification Number |")
 
 	// Category headers should use separator-line format, not table rows.
 	assert.Contains(t, sdl, "── OTHER (privilege: VEHICLE_NON_LOCATION_DATA) ──")
@@ -206,7 +209,7 @@ func TestCondensedSDLSignalCollapsing(t *testing.T) {
 
 	// Per-field privilege override: the approximate field's privilege differs from
 	// the category's dominant (VEHICLE_ALL_TIME_LOCATION), so it's shown inline.
-	assert.Contains(t, sdl, "| currentLocationApproximateLatitude | Float | degrees | privilege: VEHICLE_APPROXIMATE_LOCATION |")
+	assert.Contains(t, sdl, "| currentLocationApproximateLatitude | degrees | privilege: VEHICLE_APPROXIMATE_LOCATION |")
 
 	// Signal fields should NOT appear as full field definitions.
 	assert.NotContains(t, sdl, "speed(agg: FloatAggregation!")
@@ -341,10 +344,42 @@ func TestIsSelfEvidentDescription(t *testing.T) {
 		{"model for this DeviceDefinition", "model", "DeviceDefinition", true},
 		// "<Field> of the <type>." patterns
 		{"model of the DeviceDefinition.", "model", "DeviceDefinition", true},
+		// Boilerplate query-level openers strip to empty.
+		{"View a particular vehicle.", "vehicle", "Query", true},
+		{"Retrieve a particular template.", "template", "Query", true},
+		{"List minted vehicles.", "vehicles", "Query", true},
+		{"criteria to search for a manufacturer", "by", "ManufacturerBy", true},
+		// Filter-input descriptions that restate the field name via morphology.
+		{"Filter for vehicles owned by this address.", "owner", "VehiclesFilter", true},
+		{"Filter for aftermarket devices owned by this address.", "owner", "AftermarketDevicesFilter", true},
+		{"Filter for DCN owned by this address.", "owner", "DCNFilter", true},
+		// Drop-entirely openers ("View a particular ...") are stripped regardless
+		// of remainder — the lookup mode is already enumerated in the `by:` input
+		// type's fields, so the tail ("by VIN") adds no load-bearing info.
+		{"View a particular vehicle by VIN.", "vehicle", "Query", true},
+		// Strip-only openers ("Filter for ...") keep novel remainders.
+		{"Filter for vehicles produced by a manufacturer.", "manufacturerTokenId", "VehiclesFilter", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.desc+"_"+tt.field, func(t *testing.T) {
 			assert.Equal(t, tt.expected, isSelfEvidentDescription(tt.desc, tt.field, tt.typ))
+		})
+	}
+}
+
+func TestStripBoilerplatePrefix(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"View a particular vehicle.", "vehicle."},
+		{"Retrieve a particular template.", "template."},
+		{"Filter for vehicles owned by this address.", "vehicles owned by this address."},
+		{"Filters the DCNs based on the specified criteria.", "DCNs based on the specified criteria."},
+		{"List minted vehicles.", "vehicles."},
+		{"No prefix here.", "No prefix here."},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			assert.Equal(t, tt.want, stripBoilerplatePrefix(tt.in))
 		})
 	}
 }

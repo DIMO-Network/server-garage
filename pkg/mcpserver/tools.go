@@ -82,14 +82,6 @@ func registerBuiltinTools(server *mcp.Server, exec GraphQLExecutor, cachedSchema
 			toolCallsTotal.WithLabelValues(schemaToolName, "success").Inc()
 			toolDurationSeconds.WithLabelValues(schemaToolName).Observe(d.Seconds())
 		}()
-		if cachedSchema == "" {
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					&mcp.TextContent{Text: "schema is unavailable"},
-				},
-				IsError: true,
-			}, nil, nil
-		}
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: cachedSchema},

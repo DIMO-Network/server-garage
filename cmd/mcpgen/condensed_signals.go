@@ -74,32 +74,124 @@ func writeSignalReferenceTable(sb *strings.Builder, schema *ast.Schema, analysis
 
 	// Emit per-type calling conventions so the LLM knows how to query each
 	// signal type. The args depend on the parent type, not the individual signal.
-	sb.WriteString("#\n")
 	sb.WriteString("# All signals below exist on every signal type. Calling convention per type:\n")
 	for _, ti := range typeInfos {
-		fmt.Fprintf(sb, "# %s:\n", ti.typeName)
+		if len(ti.groups) == 1 {
+			g := ti.groups[0]
+			fmt.Fprintf(sb, "#   %s: fieldName%s: %s\n", ti.typeName, g.argSig, g.returnType)
+			continue
+		}
+		fmt.Fprintf(sb, "#   %s:\n", ti.typeName)
 		for _, g := range ti.groups {
-			fmt.Fprintf(sb, "#   fieldName%s: %s\n", g.argSig, g.returnType)
+			fmt.Fprintf(sb, "#     fieldName%s: %s\n", g.argSig, g.returnType)
 		}
 	}
-	sb.WriteString("#\n")
 
-	// Emit markdown table.
-	sb.WriteString("# | Signal | Type | Unit | Description |\n")
-	sb.WriteString("# |--------|------|------|-------------|\n")
+	// Emit type-exception list so the table can drop its Type column.
+	// Default is Float (dominant case in VSS); call out String / Location / other.
+	buckets := map[string][]string{}
+	bucketOrder := []string{}
+	for _, f := range signals {
+		rt := baseSignalType(f.Type)
+		if _, ok := buckets[rt]; !ok {
+			bucketOrder = append(bucketOrder, rt)
+		}
+		buckets[rt] = append(buckets[rt], f.Name)
+	}
+	defaultType := "Float"
+	if _, ok := buckets[defaultType]; !ok {
+		// Fall back to whichever bucket is largest.
+		maxN := 0
+		for t, names := range buckets {
+			if len(names) > maxN {
+				defaultType = t
+				maxN = len(names)
+			}
+		}
+	}
+	fmt.Fprintf(sb, "# %s is the default type.", defaultType)
+	for _, t := range bucketOrder {
+		if t == defaultType {
+			continue
+		}
+		fmt.Fprintf(sb, " %s: %s.", t, strings.Join(buckets[t], ", "))
+	}
+	sb.WriteString("\n")
+
+	// Emit markdown table (Unit | Description; Type is omitted — see exception list above).
+	sb.WriteString("# | Signal | Unit | Description |\n")
+	sb.WriteString("# |--------|------|-------------|\n")
+
+	// Global shared descriptions: descriptions repeated verbatim ≥3 times across
+	// the entire signal list (doors "Is item open or closed?", belts "Is the belt
+	// engaged", wheel "Rotational speed of a vehicle's wheel", etc.). Emit each
+	// once in a legend above the table; rows whose desc matches are blanked so
+	// the prose isn't repeated across every door/belt/wheel row.
+	globalShared := sharedDescriptions(signals, 3)
+	if len(globalShared) > 0 {
+		sb.WriteString("# Shared descriptions (blank rows below use these):\n")
+		for _, d := range globalShared {
+			fmt.Fprintf(sb, "#   - %s\n", d)
+		}
+	}
+	globalSharedSet := make(map[string]bool, len(globalShared))
+	for _, d := range globalShared {
+		globalSharedSet[d] = true
+	}
 
 	categories := categorizeSignals(signals)
 	for _, cat := range categories {
 		priv := dominantPrivilege(cat.fields)
+		// Category-local shared descriptions (≥2 reps not already in the global
+		// set) — catches smaller clusters the global threshold misses.
+		localShared := sharedDescriptions(cat.fields, 2)
+		localSharedSet := make(map[string]bool, len(localShared))
+		var localUnique []string
+		for _, d := range localShared {
+			if globalSharedSet[d] {
+				continue
+			}
+			localSharedSet[d] = true
+			localUnique = append(localUnique, d)
+		}
+		header := fmt.Sprintf("# ── %s ──", cat.label)
 		if priv != "" {
-			fmt.Fprintf(sb, "# ── %s (privilege: %s) ──\n", cat.label, priv)
-		} else {
-			fmt.Fprintf(sb, "# ── %s ──\n", cat.label)
+			header = fmt.Sprintf("# ── %s (privilege: %s) ──", cat.label, priv)
+		}
+		sb.WriteString(header)
+		sb.WriteString("\n")
+		for _, d := range localUnique {
+			fmt.Fprintf(sb, "# shared: %s\n", d)
 		}
 		for _, f := range cat.fields {
-			writeSignalTableRow(sb, f, priv)
+			writeSignalTableRow(sb, f, priv, globalSharedSet, localSharedSet)
 		}
 	}
+}
+
+// sharedDescriptions returns the set of non-obvious signal descriptions that
+// repeat verbatim at least `min` times across fields, preserving first-observed
+// order for stable output.
+func sharedDescriptions(fields []*ast.FieldDefinition, min int) []string {
+	counts := map[string]int{}
+	order := []string{}
+	for _, f := range fields {
+		d := extractShortDescription(f.Description)
+		if d == "" || !isNonObviousSignalDesc(d, f.Name) {
+			continue
+		}
+		if _, seen := counts[d]; !seen {
+			order = append(order, d)
+		}
+		counts[d]++
+	}
+	var out []string
+	for _, d := range order {
+		if counts[d] >= min {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // writeFieldsWithSignalCollapsing writes fields for types that contain @isSignal fields.
@@ -127,7 +219,7 @@ func writeFieldsWithSignalCollapsing(sb *strings.Builder, def *ast.Definition) {
 		}
 		sb.WriteString("  ")
 		sb.WriteString(field.Name)
-		writeFieldArguments(sb, field.Arguments)
+		writeFieldArguments(sb, field.Arguments, field.Name)
 		sb.WriteString(": ")
 		sb.WriteString(field.Type.String())
 		sb.WriteString("\n")
@@ -141,12 +233,17 @@ func writeFieldsWithSignalCollapsing(sb *strings.Builder, def *ast.Definition) {
 // writeSignalTableRow writes a signal as a markdown table row.
 // categoryPrivilege is the dominant privilege for the category; if the field's
 // privilege differs, it is shown inline in the description column.
-func writeSignalTableRow(sb *strings.Builder, f *ast.FieldDefinition, categoryPrivilege string) {
-	rt := baseSignalType(f.Type)
+// globalShared and localShared are sets of description texts emitted as legends
+// above the table or category; rows whose own description matches any of them
+// are blanked so the table doesn't repeat identical prose.
+func writeSignalTableRow(sb *strings.Builder, f *ast.FieldDefinition, categoryPrivilege string, globalShared, localShared map[string]bool) {
 	unit := extractUnit(f.Description)
 	shortDesc := extractShortDescription(f.Description)
 	// Drop descriptions that just restate the signal name + unit.
 	if !isNonObviousSignalDesc(shortDesc, f.Name) {
+		shortDesc = ""
+	}
+	if globalShared[shortDesc] || localShared[shortDesc] {
 		shortDesc = ""
 	}
 
@@ -160,7 +257,7 @@ func writeSignalTableRow(sb *strings.Builder, f *ast.FieldDefinition, categoryPr
 		}
 	}
 
-	fmt.Fprintf(sb, "# | %s | %s | %s | %s |\n", f.Name, rt, unit, shortDesc)
+	fmt.Fprintf(sb, "# | %s | %s | %s |\n", f.Name, unit, shortDesc)
 }
 
 // baseSignalType returns the base type name for a signal field's return type.
