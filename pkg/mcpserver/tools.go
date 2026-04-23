@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
+	"text/template"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -146,12 +148,25 @@ func buildInputSchema(args []ArgDefinition) map[string]any {
 }
 
 // registerShortcutTools registers shortcut tools derived from ToolDefinitions.
-func registerShortcutTools(server *mcp.Server, exec GraphQLExecutor, tools []ToolDefinition, logger *slog.Logger) {
+// Returns an error if any tool's SelectionTemplate fails to parse.
+func registerShortcutTools(server *mcp.Server, exec GraphQLExecutor, tools []ToolDefinition, logger *slog.Logger) error {
 	for _, tool := range tools {
 		inputSchema := buildInputSchema(tool.Args)
 		argDefs := make(map[string]ArgDefinition, len(tool.Args))
 		for _, a := range tool.Args {
 			argDefs[a.Name] = a
+		}
+
+		var selTmpl *template.Template
+		if tool.SelectionTemplate != "" {
+			tmpl, err := template.New(tool.Name).Parse(tool.SelectionTemplate)
+			if err != nil {
+				return fmt.Errorf("mcpserver: parse SelectionTemplate for tool %q: %w", tool.Name, err)
+			}
+			if !strings.Contains(tool.Query, SelectionPlaceholder) {
+				return fmt.Errorf("mcpserver: tool %q has SelectionTemplate but Query is missing placeholder %q", tool.Name, SelectionPlaceholder)
+			}
+			selTmpl = tmpl
 		}
 
 		mcp.AddTool(server, &mcp.Tool{
@@ -161,9 +176,21 @@ func registerShortcutTools(server *mcp.Server, exec GraphQLExecutor, tools []Too
 			Annotations: tool.Annotations,
 		}, func(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 			coerceArgTypes(args, argDefs)
-			return executeTool(ctx, tool.Name, exec, tool.Query, args, logger)
+			query := tool.Query
+			if selTmpl != nil {
+				var buf strings.Builder
+				if err := selTmpl.Execute(&buf, args); err != nil {
+					return &mcp.CallToolResult{
+						Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("failed to render selection template: %s", err.Error())}},
+						IsError: true,
+					}, nil, nil
+				}
+				query = strings.Replace(tool.Query, SelectionPlaceholder, buf.String(), 1)
+			}
+			return executeTool(ctx, tool.Name, exec, query, args, logger)
 		})
 	}
+	return nil
 }
 
 // coerceArgTypes normalizes JSON-decoded argument values to the types

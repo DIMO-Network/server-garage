@@ -25,13 +25,26 @@ type ArgDefinition struct {
 	EnumValues  []string // Allowed values for enum types
 }
 
+// SelectionPlaceholder is the marker mcpgen inserts into Query where a
+// per-call rendering of SelectionTemplate should be spliced in before
+// the query is executed.
+const SelectionPlaceholder = "__MCPGEN_SELECTION__"
+
 // ToolDefinition describes an MCP tool backed by a GraphQL query.
+//
+// When SelectionTemplate is empty, Query is executed as-is. When it is set,
+// mcpserver parses it once as a Go text/template at registration time and, on
+// each call, renders the template with the call's argument map and replaces
+// the first occurrence of SelectionPlaceholder in Query with the result.
+// mcpgen emits SelectionTemplate automatically when the @mcpTool `selection`
+// argument contains template markers (`{{` / `}}`).
 type ToolDefinition struct {
-	Name        string
-	Description string
-	Args        []ArgDefinition
-	Query       string
-	Annotations *mcp.ToolAnnotations
+	Name              string
+	Description       string
+	Args              []ArgDefinition
+	Query             string
+	SelectionTemplate string
+	Annotations       *mcp.ToolAnnotations
 }
 
 // Option configures the MCP server.
@@ -123,7 +136,9 @@ func New(exec GraphQLExecutor, serverName string, version string, toolPrefix str
 	})
 
 	registerBuiltinTools(server, exec, cfg.condensedSchema, toolPrefix, cfg.maxQuerySize, cfg.logger)
-	registerShortcutTools(server, exec, cfg.tools, cfg.logger)
+	if err := registerShortcutTools(server, exec, cfg.tools, cfg.logger); err != nil {
+		return nil, err
+	}
 
 	handler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 		return server

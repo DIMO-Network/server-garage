@@ -106,7 +106,7 @@ func TestShortcutTool(t *testing.T) {
 	}, nil)
 
 	exec := mockGQLExecutor()
-	registerShortcutTools(mcpServer, exec, []ToolDefinition{toolDef}, nil)
+	require.NoError(t, registerShortcutTools(mcpServer, exec, []ToolDefinition{toolDef}, nil))
 
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 
@@ -599,7 +599,7 @@ func TestShortcutToolUnexpectedArgs(t *testing.T) {
 	}
 
 	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.1.0"}, nil)
-	registerShortcutTools(mcpServer, mockGQLExecutor(), []ToolDefinition{tool}, nil)
+	require.NoError(t, registerShortcutTools(mcpServer, mockGQLExecutor(), []ToolDefinition{tool}, nil))
 
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 	ctx := context.Background()
@@ -647,7 +647,7 @@ func TestMultipleShortcutToolsDispatch(t *testing.T) {
 
 	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.1.0"}, nil)
 	exec := mockGQLExecutor()
-	registerShortcutTools(mcpServer, exec, tools, nil)
+	require.NoError(t, registerShortcutTools(mcpServer, exec, tools, nil))
 
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 	ctx := context.Background()
@@ -688,6 +688,81 @@ func TestMultipleShortcutToolsDispatch(t *testing.T) {
 			assert.Equal(t, tool.Query, data["echoQuery"], "tool %s dispatched wrong query", tool.Name)
 		})
 	}
+}
+
+func TestSelectionTemplateRendering(t *testing.T) {
+	var capturedQuery string
+	exec := &mockExecutor{
+		fn: func(ctx context.Context, query string, variables map[string]any) ([]byte, error) {
+			capturedQuery = query
+			return []byte(`{"data":{}}`), nil
+		},
+	}
+
+	tool := ToolDefinition{
+		Name:        "get_signals",
+		Description: "Aggregated signals with dynamic selection",
+		Args: []ArgDefinition{
+			{Name: "tokenId", Type: "integer", Required: true},
+			{Name: "signalRequests", Type: "array", ItemsType: "object", Required: true},
+		},
+		Query:             `query($tokenId: Int!, $signalRequests: [SignalRequest!]!) { signals(tokenId: $tokenId, signalRequests: $signalRequests) { __MCPGEN_SELECTION__ } }`,
+		SelectionTemplate: "timestamp{{range .signalRequests}} {{.name}}(agg: {{.agg}}){{end}}",
+	}
+
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.1.0"}, nil)
+	require.NoError(t, registerShortcutTools(mcpServer, exec, []ToolDefinition{tool}, nil))
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = mcpServer.Run(ctx, serverTransport) }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.1.0"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+
+	_, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "get_signals",
+		Arguments: map[string]any{
+			"tokenId": 42,
+			"signalRequests": []any{
+				map[string]any{"name": "speed", "agg": "AVG"},
+				map[string]any{"name": "rpm", "agg": "MAX"},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	assert.Contains(t, capturedQuery, "timestamp speed(agg: AVG) rpm(agg: MAX)")
+	assert.NotContains(t, capturedQuery, SelectionPlaceholder, "placeholder should have been substituted")
+	assert.NotContains(t, capturedQuery, "{{", "template markers should not leak into executed query")
+}
+
+func TestSelectionTemplateInvalidRejectedAtRegistration(t *testing.T) {
+	tool := ToolDefinition{
+		Name:              "bad_tool",
+		Description:       "Bad template",
+		Query:             `{ foo __MCPGEN_SELECTION__ }`,
+		SelectionTemplate: "{{ range .items", // missing closing braces
+	}
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.1.0"}, nil)
+	err := registerShortcutTools(mcpServer, mockGQLExecutor(), []ToolDefinition{tool}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "bad_tool")
+}
+
+func TestSelectionTemplateMissingPlaceholderRejected(t *testing.T) {
+	tool := ToolDefinition{
+		Name:              "no_placeholder",
+		Description:       "Template with no placeholder in Query",
+		Query:             `{ foo }`,
+		SelectionTemplate: "bar",
+	}
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.1.0"}, nil)
+	err := registerShortcutTools(mcpServer, mockGQLExecutor(), []ToolDefinition{tool}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), SelectionPlaceholder)
 }
 
 func TestTokenVerifierContextPropagation(t *testing.T) {
