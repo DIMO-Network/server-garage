@@ -169,6 +169,14 @@ func registerShortcutTools(server *mcp.Server, exec GraphQLExecutor, tools []Too
 			selTmpl = tmpl
 		}
 
+		hasToolOnly := false
+		for _, a := range tool.Args {
+			if a.ToolOnly {
+				hasToolOnly = true
+				break
+			}
+		}
+
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        tool.Name,
 			Description: tool.Description,
@@ -187,7 +195,17 @@ func registerShortcutTools(server *mcp.Server, exec GraphQLExecutor, tools []Too
 				}
 				query = strings.Replace(tool.Query, SelectionPlaceholder, buf.String(), 1)
 			}
-			return executeTool(ctx, tool.Name, exec, query, args, logger)
+			gqlArgs := args
+			if hasToolOnly {
+				gqlArgs = make(map[string]any, len(args))
+				for k, v := range args {
+					if def, ok := argDefs[k]; ok && def.ToolOnly {
+						continue
+					}
+					gqlArgs[k] = v
+				}
+			}
+			return executeTool(ctx, tool.Name, exec, query, gqlArgs, logger)
 		})
 	}
 	return nil

@@ -236,6 +236,65 @@ func TestTemplatedSelectionGeneratedOutput(t *testing.T) {
 	assert.Contains(t, output, "__MCPGEN_SELECTION__")
 }
 
+func TestToolOnlyArg(t *testing.T) {
+	tools := loadTools(t, []string{"testdata/tool_only_arg.graphqls"}, "")
+	require.Len(t, tools, 1)
+
+	tool := tools[0]
+	require.Len(t, tool.Args, 2, "tokenId (field arg) + signalRequests (tool-only)")
+
+	assert.Equal(t, "tokenId", tool.Args[0].Name)
+	assert.False(t, tool.Args[0].ToolOnly, "tokenId is a real field arg")
+
+	signalReqs := tool.Args[1]
+	assert.Equal(t, "signalRequests", signalReqs.Name)
+	assert.True(t, signalReqs.ToolOnly, "signalRequests is tool-only")
+	assert.Equal(t, "array", signalReqs.Type)
+	assert.Equal(t, "object", signalReqs.ItemsType)
+	assert.True(t, signalReqs.Required)
+	assert.Equal(t, "List of signal/aggregation pairs to render into the selection", signalReqs.Description)
+
+	assert.NotContains(t, tool.Query, "$signalRequests", "tool-only arg must not become a GraphQL variable")
+	assert.Contains(t, tool.Query, "__MCPGEN_SELECTION__")
+	assert.Contains(t, tool.SelectionTemplate, ".signalRequests")
+}
+
+func TestToolOnlyArgGeneratedOutput(t *testing.T) {
+	tools := loadTools(t, []string{"testdata/tool_only_arg.graphqls"}, "test")
+	output, err := generateGoFile("graph", tools, "")
+	require.NoError(t, err)
+	assert.Contains(t, output, "ToolOnly: true")
+}
+
+func TestParseTypeString(t *testing.T) {
+	cases := []struct {
+		in       string
+		named    string
+		nonNull  bool
+		listElem string
+	}{
+		{"Int", "Int", false, ""},
+		{"Int!", "Int", true, ""},
+		{"[Foo!]", "", false, "Foo"},
+		{"[Foo!]!", "", true, "Foo"},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			got, err := parseTypeString(c.in)
+			require.NoError(t, err)
+			if c.listElem != "" {
+				require.NotNil(t, got.Elem)
+				assert.Equal(t, c.listElem, got.Elem.NamedType)
+			} else {
+				assert.Equal(t, c.named, got.NamedType)
+			}
+			assert.Equal(t, c.nonNull, got.NonNull)
+		})
+	}
+	_, err := parseTypeString("[Foo")
+	require.Error(t, err)
+}
+
 func TestMapGraphQLTypeAllScalars(t *testing.T) {
 	tools := loadTools(t, []string{"testdata/all_types.graphqls"}, "")
 	require.Len(t, tools, 1)

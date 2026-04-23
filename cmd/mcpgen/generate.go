@@ -65,6 +65,58 @@ func isTemplatedSelection(selection string) bool {
 	return strings.Contains(selection, "{{")
 }
 
+// parseTypeString parses a GraphQL type reference (e.g. "Int", "String!",
+// "[Foo!]!") into an *ast.Type. Used to resolve the `type:` argument of the
+// @mcpToolArg directive so mcpgen can build the same JSON schema it builds
+// for real GraphQL field arguments.
+func parseTypeString(s string) (*ast.Type, error) {
+	t, rest, err := parseTypeInner(s)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(rest) != "" {
+		return nil, fmt.Errorf("unexpected trailing text %q", strings.TrimSpace(rest))
+	}
+	return t, nil
+}
+
+func parseTypeInner(s string) (*ast.Type, string, error) {
+	s = strings.TrimLeft(s, " \t")
+	if s == "" {
+		return nil, "", fmt.Errorf("empty type")
+	}
+	var t *ast.Type
+	if s[0] == '[' {
+		inner, rest, err := parseTypeInner(s[1:])
+		if err != nil {
+			return nil, "", err
+		}
+		rest = strings.TrimLeft(rest, " \t")
+		if rest == "" || rest[0] != ']' {
+			return nil, "", fmt.Errorf("missing closing ']' in type")
+		}
+		rest = rest[1:]
+		t = &ast.Type{Elem: inner}
+		s = rest
+	} else {
+		i := 0
+		for i < len(s) && isIdentChar(rune(s[i])) {
+			i++
+		}
+		if i == 0 {
+			return nil, "", fmt.Errorf("expected identifier at %q", s)
+		}
+		t = &ast.Type{NamedType: s[:i]}
+		s = s[i:]
+	}
+	s = strings.TrimLeft(s, " \t")
+	if strings.HasPrefix(s, "!") {
+		t.NonNull = true
+		s = s[1:]
+	}
+	return t, s, nil
+}
+
 // validateSelection checks that top-level field names in the selection exist on the type.
 func validateSelection(selection string, typeDef *ast.Definition) error {
 	fields := extractTopLevelFields(selection)
@@ -239,7 +291,7 @@ var MCPTools = []mcpserver.ToolDefinition{
 		Description: {{printf "%q" .Description}},
 		Args: []mcpserver.ArgDefinition{
 		{{- range .Args}}
-			{Name: {{printf "%q" .Name}}, Type: {{printf "%q" .Type}}, Description: {{printf "%q" .Description}}, Required: {{.Required}}, ItemsType: {{printf "%q" .ItemsType}}{{if .EnumValues}}, EnumValues: []string{ {{- range $i, $v := .EnumValues}}{{if $i}}, {{end}}{{printf "%q" $v}}{{end -}} }{{end}}},
+			{Name: {{printf "%q" .Name}}, Type: {{printf "%q" .Type}}, Description: {{printf "%q" .Description}}, Required: {{.Required}}, ItemsType: {{printf "%q" .ItemsType}}{{if .EnumValues}}, EnumValues: []string{ {{- range $i, $v := .EnumValues}}{{if $i}}, {{end}}{{printf "%q" $v}}{{end -}} }{{end}}{{if .ToolOnly}}, ToolOnly: true{{end}}},
 		{{- end}}
 		},
 		Query: {{printf "%q" .Query}},

@@ -256,6 +256,45 @@ func extractTools(schema *ast.Schema, prefix string) ([]mcpserver.ToolDefinition
 			})
 		}
 
+		// @mcpToolArg adds tool-only arguments that exist solely to feed the
+		// SelectionTemplate. They are stripped from GraphQL variables at call
+		// time and do not have to appear on the underlying field.
+		for _, d := range field.Directives {
+			if d.Name != "mcpToolArg" {
+				continue
+			}
+			argNameV := d.Arguments.ForName("name")
+			typeV := d.Arguments.ForName("type")
+			if argNameV == nil || typeV == nil {
+				return nil, fmt.Errorf("field %s: @mcpToolArg directive missing required argument(s)", field.Name)
+			}
+			parsedType, err := parseTypeString(typeV.Value.Raw)
+			if err != nil {
+				return nil, fmt.Errorf("field %s: @mcpToolArg(name: %q) invalid type: %w", field.Name, argNameV.Value.Raw, err)
+			}
+			argDesc := ""
+			if descV := d.Arguments.ForName("description"); descV != nil {
+				argDesc = descV.Value.Raw
+			}
+			if argDesc == "" {
+				if parsedType.NonNull {
+					argDesc = fmt.Sprintf("%s (%s, required)", argNameV.Value.Raw, parsedType.String())
+				} else {
+					argDesc = fmt.Sprintf("%s (%s, optional)", argNameV.Value.Raw, parsedType.String())
+				}
+			}
+			jsonType, itemsType := mapGraphQLType(parsedType, schema)
+			args = append(args, mcpserver.ArgDefinition{
+				Name:        argNameV.Value.Raw,
+				Type:        jsonType,
+				Description: argDesc,
+				Required:    parsedType.NonNull,
+				ItemsType:   itemsType,
+				EnumValues:  enumValues(parsedType, schema),
+				ToolOnly:    true,
+			})
+		}
+
 		selectionTemplate := ""
 		querySelection := selection
 		if isTemplated {

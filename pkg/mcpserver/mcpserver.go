@@ -23,6 +23,11 @@ type ArgDefinition struct {
 	Required    bool
 	ItemsType   string   // JSON Schema type for array elements
 	EnumValues  []string // Allowed values for enum types
+	// ToolOnly marks an argument that exists on the MCP tool for the sake of
+	// SelectionTemplate rendering but is not a real argument on the underlying
+	// GraphQL field. These are stripped from the variables map before the
+	// GraphQL executor is called. Emitted by mcpgen from @mcpToolArg directives.
+	ToolOnly bool
 }
 
 // SelectionPlaceholder is the marker mcpgen inserts into Query where a
