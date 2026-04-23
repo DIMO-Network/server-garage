@@ -739,6 +739,58 @@ func TestSelectionTemplateRendering(t *testing.T) {
 	assert.NotContains(t, capturedQuery, "{{", "template markers should not leak into executed query")
 }
 
+func TestToolOnlyArgStrippedFromVariables(t *testing.T) {
+	var captured struct {
+		query string
+		vars  map[string]any
+	}
+	exec := &mockExecutor{
+		fn: func(ctx context.Context, query string, variables map[string]any) ([]byte, error) {
+			captured.query = query
+			captured.vars = variables
+			return []byte(`{"data":{}}`), nil
+		},
+	}
+
+	tool := ToolDefinition{
+		Name:        "get_signals",
+		Description: "Aggregated signals with dynamic selection",
+		Args: []ArgDefinition{
+			{Name: "tokenId", Type: "integer", Required: true},
+			{Name: "signalRequests", Type: "array", ItemsType: "object", Required: true, ToolOnly: true},
+		},
+		Query:             `query($tokenId: Int!) { signals(tokenId: $tokenId) { __MCPGEN_SELECTION__ } }`,
+		SelectionTemplate: "timestamp{{range .signalRequests}} {{.name}}(agg: {{.agg}}){{end}}",
+	}
+
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.1.0"}, nil)
+	require.NoError(t, registerShortcutTools(mcpServer, exec, []ToolDefinition{tool}, nil))
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = mcpServer.Run(ctx, serverTransport) }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.1.0"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+
+	_, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "get_signals",
+		Arguments: map[string]any{
+			"tokenId": 42,
+			"signalRequests": []any{
+				map[string]any{"name": "speed", "agg": "AVG"},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	assert.Contains(t, captured.query, "timestamp speed(agg: AVG)", "template should render with the tool-only arg")
+	assert.Contains(t, captured.vars, "tokenId", "real field args must still go to the executor")
+	assert.NotContains(t, captured.vars, "signalRequests", "tool-only args must not be passed as GraphQL variables")
+}
+
 func TestSelectionTemplateInvalidRejectedAtRegistration(t *testing.T) {
 	tool := ToolDefinition{
 		Name:              "bad_tool",
