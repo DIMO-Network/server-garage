@@ -212,13 +212,19 @@ func extractTools(schema *ast.Schema, prefix string) ([]mcpserver.ToolDefinition
 		}
 		description := descArg.Value.Raw
 		selection := selArg.Value.Raw
+		isTemplated := isTemplatedSelection(selection)
 
 		readOnly := true // default
 		if readOnlyArg := dir.Arguments.ForName("readOnly"); readOnlyArg != nil {
 			readOnly = readOnlyArg.Value.Raw == "true"
 		}
 
-		if selection != "" {
+		// Only validate selections that are plain text. Templated selections
+		// can't be checked here because the rendered field names depend on
+		// per-call argument values; a bad template is rejected by mcpserver
+		// at registration time and bad rendered GraphQL is rejected by the
+		// executor at call time.
+		if selection != "" && !isTemplated {
 			returnTypeName := namedType(field.Type)
 			returnType := schema.Types[returnTypeName]
 			if returnType == nil {
@@ -250,7 +256,13 @@ func extractTools(schema *ast.Schema, prefix string) ([]mcpserver.ToolDefinition
 			})
 		}
 
-		query := buildQueryString(field, selection)
+		selectionTemplate := ""
+		querySelection := selection
+		if isTemplated {
+			selectionTemplate = selection
+			querySelection = mcpserver.SelectionPlaceholder
+		}
+		query := buildQueryString(field, querySelection)
 
 		var annotations *mcp.ToolAnnotations
 		if readOnly {
@@ -264,11 +276,12 @@ func extractTools(schema *ast.Schema, prefix string) ([]mcpserver.ToolDefinition
 		}
 
 		tools = append(tools, mcpserver.ToolDefinition{
-			Name:        toolName,
-			Description: description,
-			Args:        args,
-			Query:       query,
-			Annotations: annotations,
+			Name:              toolName,
+			Description:       description,
+			Args:              args,
+			Query:             query,
+			SelectionTemplate: selectionTemplate,
+			Annotations:       annotations,
 		})
 	}
 

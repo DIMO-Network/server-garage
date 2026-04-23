@@ -217,6 +217,25 @@ func TestGeneratedCodeWithAnnotationsCompiles(t *testing.T) {
 	assert.Contains(t, output, "boolPtr")
 }
 
+func TestTemplatedSelection(t *testing.T) {
+	tools := loadTools(t, []string{"testdata/templated_selection.graphqls"}, "")
+	require.Len(t, tools, 1)
+
+	tool := tools[0]
+	assert.Equal(t, "get_signals", tool.Name)
+	assert.Equal(t, "timestamp {{range .signalRequests}} {{.name}}(agg: {{.agg}}) {{end}}", tool.SelectionTemplate)
+	assert.Contains(t, tool.Query, "__MCPGEN_SELECTION__", "Query should carry the selection placeholder")
+	assert.NotContains(t, tool.Query, "{{", "Query should not contain the raw template")
+}
+
+func TestTemplatedSelectionGeneratedOutput(t *testing.T) {
+	tools := loadTools(t, []string{"testdata/templated_selection.graphqls"}, "test")
+	output, err := generateGoFile("graph", tools, "")
+	require.NoError(t, err)
+	assert.Contains(t, output, "SelectionTemplate:")
+	assert.Contains(t, output, "__MCPGEN_SELECTION__")
+}
+
 func TestMapGraphQLTypeAllScalars(t *testing.T) {
 	tools := loadTools(t, []string{"testdata/all_types.graphqls"}, "")
 	require.Len(t, tools, 1)

@@ -1,0 +1,21 @@
+directive @mcpTool(name: String!, description: String!, selection: String!, readOnly: Boolean = true) on FIELD_DEFINITION
+
+type Query {
+  signals(tokenId: Int!, signalRequests: [SignalRequest!]!): [Bucket!]
+    @mcpTool(
+      name: "get_signals"
+      description: "Aggregated signals with dynamic per-field selection"
+      selection: "timestamp {{range .signalRequests}} {{.name}}(agg: {{.agg}}) {{end}}"
+    )
+}
+
+type Bucket {
+  timestamp: String!
+  speed: Float
+  rpm: Float
+}
+
+input SignalRequest {
+  name: String!
+  agg: String!
+}

@@ -58,6 +58,13 @@ func buildQueryString(field *ast.FieldDefinition, selection string) string {
 	return sb.String()
 }
 
+// isTemplatedSelection reports whether a selection string contains Go
+// text/template action delimiters. When true, mcpgen emits it as a
+// SelectionTemplate rendered per call rather than a static selection set.
+func isTemplatedSelection(selection string) bool {
+	return strings.Contains(selection, "{{")
+}
+
 // validateSelection checks that top-level field names in the selection exist on the type.
 func validateSelection(selection string, typeDef *ast.Definition) error {
 	fields := extractTopLevelFields(selection)
@@ -236,6 +243,9 @@ var MCPTools = []mcpserver.ToolDefinition{
 		{{- end}}
 		},
 		Query: {{printf "%q" .Query}},
+		{{- if .SelectionTemplate}}
+		SelectionTemplate: {{printf "%q" .SelectionTemplate}},
+		{{- end}}
 		{{- if .Annotations}}
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint:    {{.Annotations.ReadOnlyHint}},
