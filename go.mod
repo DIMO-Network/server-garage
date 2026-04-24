@@ -4,18 +4,18 @@ go 1.25.0
 
 require (
 	github.com/99designs/gqlgen v0.17.89
-	github.com/DIMO-Network/cloudevent v0.2.7
+	github.com/DIMO-Network/cloudevent v1.0.4
 	github.com/DIMO-Network/token-exchange-api v0.4.0
 	github.com/caarlos0/env/v11 v11.4.0
-	github.com/ethereum/go-ethereum v1.17.1
-	github.com/go-jose/go-jose/v3 v3.0.4
+	github.com/ethereum/go-ethereum v1.17.2
+	github.com/go-jose/go-jose/v3 v3.0.5
 	github.com/gofiber/contrib/jwt v1.1.2
 	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/joho/godotenv v1.5.1
-	github.com/modelcontextprotocol/go-sdk v1.4.1
+	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/prometheus/client_golang v1.23.2
-	github.com/rs/zerolog v1.34.0
+	github.com/rs/zerolog v1.35.1
 	github.com/stretchr/testify v1.11.1
 	github.com/vektah/gqlparser/v2 v2.5.32
 	golang.org/x/sync v0.20.0
