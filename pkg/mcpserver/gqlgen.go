@@ -15,10 +15,21 @@ type gqlgenExecutor struct {
 	exec *executor.Executor
 }
 
+// ExecutorOption customizes the gqlgen executor backing a GraphQLExecutor
+// before it serves MCP queries — e.g. registering handler extensions
+// (complexity limits, billing middleware) or setting an error presenter.
+// Services that configure their HTTP GraphQL server with extensions should
+// pass the same set here so both paths behave identically.
+type ExecutorOption func(*executor.Executor)
+
 // NewGQLGenExecutor returns a GraphQLExecutor backed by a gqlgen ExecutableSchema.
-func NewGQLGenExecutor(es graphql.ExecutableSchema) GraphQLExecutor {
+func NewGQLGenExecutor(es graphql.ExecutableSchema, opts ...ExecutorOption) GraphQLExecutor {
+	e := executor.New(es)
+	for _, opt := range opts {
+		opt(e)
+	}
 	return &gqlgenExecutor{
-		exec: executor.New(es),
+		exec: e,
 	}
 }
 

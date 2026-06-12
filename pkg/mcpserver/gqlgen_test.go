@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/99designs/gqlgen/graphql"
+	"github.com/99designs/gqlgen/graphql/executor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vektah/gqlparser/v2"
@@ -75,4 +76,40 @@ func TestGQLGenExecutorNilResponse(t *testing.T) {
 	_, err := exec.Execute(context.Background(), `{ hello }`, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "nil response")
+}
+
+// testExtension is a minimal gqlgen handler extension that records whether it
+// intercepted a response.
+type testExtension struct {
+	called *bool
+}
+
+func (testExtension) ExtensionName() string                              { return "TestExtension" }
+func (testExtension) Validate(schema graphql.ExecutableSchema) error    { return nil }
+func (e testExtension) InterceptResponse(ctx context.Context, next graphql.ResponseHandler) *graphql.Response {
+	*e.called = true
+	return next(ctx)
+}
+
+func TestGQLGenExecutorAppliesOptions(t *testing.T) {
+	es := &graphql.ExecutableSchemaMock{
+		SchemaFunc: testSchema,
+		ComplexityFunc: func(ctx context.Context, typeName, fieldName string, childComplexity int, args map[string]any) (int, bool) {
+			return 0, false
+		},
+		ExecFunc: func(ctx context.Context) graphql.ResponseHandler {
+			return func(ctx context.Context) *graphql.Response {
+				return &graphql.Response{Data: []byte(`{"hello":"world"}`)}
+			}
+		},
+	}
+
+	var intercepted bool
+	exec := NewGQLGenExecutor(es, func(e *executor.Executor) {
+		e.Use(testExtension{called: &intercepted})
+	})
+
+	_, err := exec.Execute(context.Background(), `{ hello }`, nil)
+	require.NoError(t, err)
+	assert.True(t, intercepted, "extension registered via ExecutorOption must run")
 }
