@@ -19,7 +19,7 @@ VERSION   := $(shell git describe --tags || echo "v0.0.0")
 VER_CUT   := $(shell echo $(VERSION) | cut -c2-)
 
 # Dependency versions
-GOLANGCI_VERSION   = latest
+GOLANGCI_VERSION   = v2.12.1
 CLICKHOUSE_INFRA_VERSION = $(shell go list -m -f '{{.Version}}' github.com/DIMO-Network/clickhouse-infra)
 
 help:
@@ -53,4 +53,4 @@ tools: tools-golangci-lint ## Install all tools
 
 tools-golangci-lint: ## Install golangci-lint
 	@mkdir -p $(PATHINSTBIN)
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | BINARY=golangci-lint bash -s -- ${GOLANGCI_VERSION}
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/$(GOLANGCI_VERSION)/install.sh | sh -s -- -b $(PATHINSTBIN) $(GOLANGCI_VERSION)
