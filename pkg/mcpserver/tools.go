@@ -159,7 +159,10 @@ func registerShortcutTools(server *mcp.Server, exec GraphQLExecutor, tools []Too
 
 		var selTmpl *template.Template
 		if tool.SelectionTemplate != "" {
-			tmpl, err := template.New(tool.Name).Parse(tool.SelectionTemplate)
+			// missingkey=error: a caller omitting a key the template references
+			// (e.g. a signalRequests entry without "agg") gets a clear render
+			// error instead of "<no value>" spliced into the GraphQL query.
+			tmpl, err := template.New(tool.Name).Option("missingkey=error").Parse(tool.SelectionTemplate)
 			if err != nil {
 				return fmt.Errorf("mcpserver: parse SelectionTemplate for tool %q: %w", tool.Name, err)
 			}

@@ -925,3 +925,52 @@ func TestCoerceArgTypesPreservesExistingInts(t *testing.T) {
 	coerceArgTypes(args, defs)
 	assert.Equal(t, int64(7), args["tokenId"])
 }
+
+func TestSelectionTemplateMissingKeyReturnsToolError(t *testing.T) {
+	exec := &mockExecutor{
+		fn: func(ctx context.Context, query string, variables map[string]any) ([]byte, error) {
+			t.Fatal("executor must not be called when template rendering fails")
+			return nil, nil
+		},
+	}
+
+	tool := ToolDefinition{
+		Name:        "get_signals",
+		Description: "Aggregated signals with dynamic selection",
+		Args: []ArgDefinition{
+			{Name: "signalRequests", Type: "array", ItemsType: "object", Required: true, ToolOnly: true},
+		},
+		Query:             `query { signals { __MCPGEN_SELECTION__ } }`,
+		SelectionTemplate: "timestamp{{range .signalRequests}} {{.name}}(agg: {{.agg}}){{end}}",
+	}
+
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.1.0"}, nil)
+	require.NoError(t, registerShortcutTools(mcpServer, exec, []ToolDefinition{tool}, nil))
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = mcpServer.Run(ctx, serverTransport) }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.1.0"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "get_signals",
+		Arguments: map[string]any{
+			"signalRequests": []any{
+				map[string]any{"name": "speed"}, // "agg" intentionally missing
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, result.IsError, "missing template key must surface as a tool error")
+
+	contentJSON, err := json.Marshal(result.Content[0])
+	require.NoError(t, err)
+	var tc struct{ Text string }
+	require.NoError(t, json.Unmarshal(contentJSON, &tc))
+	assert.Contains(t, tc.Text, "failed to render selection template")
+	assert.NotContains(t, tc.Text, "<no value>")
+}
