@@ -1,7 +1,9 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -14,10 +16,36 @@ import (
 
 func boolPtr(b bool) *bool { return &b }
 
+// jsonNumberArgs is a map[string]any whose JSON numbers decode as json.Number
+// instead of float64, at every nesting depth. gqlgen's scalar unmarshallers
+// accept json.Number for Int and Float (its own HTTP transport decodes request
+// bodies with UseNumber) but reject float64 for Int, and float64 loses
+// precision above 2^53.
+type jsonNumberArgs map[string]any
+
+func (a *jsonNumberArgs) UnmarshalJSON(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	return dec.Decode((*map[string]any)(a))
+}
+
+// decodeRawArgs unmarshals the raw wire-format arguments into dst. The typed
+// argument the SDK hands tool handlers has been round-tripped through a plain
+// map[string]any for schema validation (applySchema), which collapses all
+// numbers to float64 before any custom unmarshaller runs. Decoding
+// req.Params.Arguments directly is the only path that preserves numeric
+// fidelity end to end.
+func decodeRawArgs(raw json.RawMessage, dst any) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	return json.Unmarshal(raw, dst)
+}
+
 // queryInput is the input for the query tool.
 type queryInput struct {
 	Query     string         `json:"query" jsonschema:"A GraphQL query or mutation string. Use $-prefixed variable placeholders for dynamic values."`
-	Variables map[string]any `json:"variables,omitempty" jsonschema:"A JSON object mapping variable names to values. Keys must match the $-prefixed placeholders declared in the query."`
+	Variables jsonNumberArgs `json:"variables,omitempty" jsonschema:"A JSON object mapping variable names to values. Keys must match the $-prefixed placeholders declared in the query."`
 }
 
 // executeTool runs a GraphQL query, instruments the call, and returns an MCP result.
@@ -103,7 +131,14 @@ func registerBuiltinTools(server *mcp.Server, exec GraphQLExecutor, cachedSchema
 		Annotations: &mcp.ToolAnnotations{
 			OpenWorldHint: boolPtr(false),
 		},
-	}, func(ctx context.Context, req *mcp.CallToolRequest, input queryInput) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, req *mcp.CallToolRequest, _ queryInput) (*mcp.CallToolResult, any, error) {
+		var input queryInput
+		if err := decodeRawArgs(req.Params.Arguments, &input); err != nil {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("failed to decode arguments: %s", err.Error())}},
+				IsError: true,
+			}, nil, nil
+		}
 		if len(input.Query) > maxQuerySize {
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{
@@ -152,9 +187,11 @@ func buildInputSchema(args []ArgDefinition) map[string]any {
 func registerShortcutTools(server *mcp.Server, exec GraphQLExecutor, tools []ToolDefinition, logger *slog.Logger) error {
 	for _, tool := range tools {
 		inputSchema := buildInputSchema(tool.Args)
-		argDefs := make(map[string]ArgDefinition, len(tool.Args))
+		toolOnlyArgs := make(map[string]bool, len(tool.Args))
 		for _, a := range tool.Args {
-			argDefs[a.Name] = a
+			if a.ToolOnly {
+				toolOnlyArgs[a.Name] = true
+			}
 		}
 
 		var selTmpl *template.Template
@@ -172,21 +209,19 @@ func registerShortcutTools(server *mcp.Server, exec GraphQLExecutor, tools []Too
 			selTmpl = tmpl
 		}
 
-		hasToolOnly := false
-		for _, a := range tool.Args {
-			if a.ToolOnly {
-				hasToolOnly = true
-				break
-			}
-		}
-
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        tool.Name,
 			Description: tool.Description,
 			InputSchema: inputSchema,
 			Annotations: tool.Annotations,
-		}, func(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
-			coerceArgTypes(args, argDefs)
+		}, func(ctx context.Context, req *mcp.CallToolRequest, _ jsonNumberArgs) (*mcp.CallToolResult, any, error) {
+			args := jsonNumberArgs{}
+			if err := decodeRawArgs(req.Params.Arguments, &args); err != nil {
+				return &mcp.CallToolResult{
+					Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("failed to decode arguments: %s", err.Error())}},
+					IsError: true,
+				}, nil, nil
+			}
 			query := tool.Query
 			if selTmpl != nil {
 				var buf strings.Builder
@@ -198,11 +233,11 @@ func registerShortcutTools(server *mcp.Server, exec GraphQLExecutor, tools []Too
 				}
 				query = strings.Replace(tool.Query, SelectionPlaceholder, buf.String(), 1)
 			}
-			gqlArgs := args
-			if hasToolOnly {
+			gqlArgs := map[string]any(args)
+			if len(toolOnlyArgs) > 0 {
 				gqlArgs = make(map[string]any, len(args))
 				for k, v := range args {
-					if def, ok := argDefs[k]; ok && def.ToolOnly {
+					if toolOnlyArgs[k] {
 						continue
 					}
 					gqlArgs[k] = v
@@ -212,36 +247,4 @@ func registerShortcutTools(server *mcp.Server, exec GraphQLExecutor, tools []Too
 		})
 	}
 	return nil
-}
-
-// coerceArgTypes normalizes JSON-decoded argument values to the types
-// gqlgen's scalar unmarshallers expect. JSON numbers arrive as float64 via
-// map[string]any, which gqlgen's Int unmarshaller rejects ("float64 is not
-// an int"); integer-typed args are converted to int64.
-func coerceArgTypes(args map[string]any, argDefs map[string]ArgDefinition) {
-	for name, v := range args {
-		def, ok := argDefs[name]
-		if !ok {
-			continue
-		}
-		switch def.Type {
-		case "integer":
-			if f, isFloat := v.(float64); isFloat {
-				args[name] = int64(f)
-			}
-		case "array":
-			if def.ItemsType != "integer" {
-				continue
-			}
-			list, isList := v.([]any)
-			if !isList {
-				continue
-			}
-			for i, item := range list {
-				if f, isFloat := item.(float64); isFloat {
-					list[i] = int64(f)
-				}
-			}
-		}
-	}
 }
