@@ -889,42 +889,7 @@ func TestWithLoggerOption(t *testing.T) {
 	assert.Contains(t, buf.String(), "tool call succeeded")
 }
 
-func TestCoerceArgTypes(t *testing.T) {
-	defs := map[string]ArgDefinition{
-		"tokenId":  {Name: "tokenId", Type: "integer"},
-		"name":     {Name: "name", Type: "string"},
-		"ids":      {Name: "ids", Type: "array", ItemsType: "integer"},
-		"tags":     {Name: "tags", Type: "array", ItemsType: "string"},
-		"nullable": {Name: "nullable", Type: "integer"},
-	}
 
-	args := map[string]any{
-		"tokenId":  float64(3),
-		"name":     "foo",
-		"ids":      []any{float64(1), float64(2), float64(3)},
-		"tags":     []any{"a", "b"},
-		"nullable": nil,
-		"unknown":  float64(99),
-	}
-
-	coerceArgTypes(args, defs)
-
-	assert.Equal(t, int64(3), args["tokenId"])
-	assert.Equal(t, "foo", args["name"])
-	assert.Equal(t, []any{int64(1), int64(2), int64(3)}, args["ids"])
-	assert.Equal(t, []any{"a", "b"}, args["tags"])
-	assert.Nil(t, args["nullable"])
-	assert.Equal(t, float64(99), args["unknown"])
-}
-
-func TestCoerceArgTypesPreservesExistingInts(t *testing.T) {
-	defs := map[string]ArgDefinition{
-		"tokenId": {Name: "tokenId", Type: "integer"},
-	}
-	args := map[string]any{"tokenId": int64(7)}
-	coerceArgTypes(args, defs)
-	assert.Equal(t, int64(7), args["tokenId"])
-}
 
 func TestSelectionTemplateMissingKeyReturnsToolError(t *testing.T) {
 	exec := &mockExecutor{
@@ -973,4 +938,90 @@ func TestSelectionTemplateMissingKeyReturnsToolError(t *testing.T) {
 	require.NoError(t, json.Unmarshal(contentJSON, &tc))
 	assert.Contains(t, tc.Text, "failed to render selection template")
 	assert.NotContains(t, tc.Text, "<no value>")
+}
+
+func TestQueryToolIntVariablePreservedForGraphQL(t *testing.T) {
+	var captured map[string]any
+	exec := &mockExecutor{
+		fn: func(ctx context.Context, query string, variables map[string]any) ([]byte, error) {
+			captured = variables
+			return []byte(`{"data":{}}`), nil
+		},
+	}
+
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.1.0"}, nil)
+	registerBuiltinTools(mcpServer, exec, `{"data":{}}`, "test", 65536, nil)
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx := context.Background()
+	go func() { _ = mcpServer.Run(ctx, serverTransport) }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.1.0"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "test_query",
+		Arguments: map[string]any{
+			"query": `query($tokenId: Int!, $big: Uint64!) { vehicle(tokenId: $tokenId, big: $big) { id } }`,
+			"variables": map[string]any{
+				"tokenId": 183644,
+				"big":     int64(9007199254740993), // exceeds float64 integer precision
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+
+	assert.Equal(t, json.Number("183644"), captured["tokenId"],
+		"Int variables must reach the executor as json.Number, not float64")
+	assert.Equal(t, json.Number("9007199254740993"), captured["big"],
+		"values beyond float64 precision must survive the decode intact")
+}
+
+func TestShortcutToolNestedIntPreservedForGraphQL(t *testing.T) {
+	var captured map[string]any
+	exec := &mockExecutor{
+		fn: func(ctx context.Context, query string, variables map[string]any) ([]byte, error) {
+			captured = variables
+			return []byte(`{"data":{}}`), nil
+		},
+	}
+
+	tool := ToolDefinition{
+		Name:        "get_segments",
+		Description: "Trip segments with detection config",
+		Args: []ArgDefinition{
+			{Name: "tokenId", Type: "integer", Required: true},
+			{Name: "config", Type: "object"},
+		},
+		Query: `query($tokenId: Int!, $config: SegmentConfig) { segments(tokenId: $tokenId, config: $config) { duration } }`,
+	}
+
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.1.0"}, nil)
+	require.NoError(t, registerShortcutTools(mcpServer, exec, []ToolDefinition{tool}, nil))
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx := context.Background()
+	go func() { _ = mcpServer.Run(ctx, serverTransport) }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.1.0"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "get_segments",
+		Arguments: map[string]any{
+			"tokenId": 42,
+			"config":  map[string]any{"maxGapSeconds": 300},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+
+	assert.Equal(t, json.Number("42"), captured["tokenId"])
+	config, ok := captured["config"].(map[string]any)
+	require.True(t, ok, "config must reach the executor as an object")
+	assert.Equal(t, json.Number("300"), config["maxGapSeconds"],
+		"Int fields nested inside object args must reach the executor as json.Number")
 }
