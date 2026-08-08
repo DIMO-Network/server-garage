@@ -8,7 +8,7 @@ require (
 	github.com/DIMO-Network/token-exchange-api v0.4.0
 	github.com/caarlos0/env/v11 v11.4.0
 	github.com/ethereum/go-ethereum v1.17.1
-	github.com/go-jose/go-jose/v3 v3.0.4
+	github.com/go-jose/go-jose/v3 v3.0.5
 	github.com/gofiber/contrib/jwt v1.1.2
 	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/golang-jwt/jwt/v5 v5.3.1
